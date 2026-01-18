@@ -25,13 +25,14 @@ A. Install CLI via `curl` or Homebrew and run `skill` from PATH.
 B. Search then install from registry: `skill search aws-lambda` -> `skill install aws/skills/aws-lambda`.
 C. Install from private GitHub with existing credentials: `skill install my-private-repo/skill-a`.
 D. Upgrade all `@latest` installs: `skill upgrade`.
-E. Remove a skill: `skill remove aws/skills/aws-lambda`.
+E. Remove a skill: `skill remove aws/skills/aws-lambda` or `skill remove --all`.
 
 ## CLI surface (v1)
 - `skill search <query>`: search registry index.
 - `skill install <ref>[@latest|@<version>]`: install a skill.
 - `skill upgrade`: refresh all skills installed with `@latest`.
 - `skill remove <ref>`: remove installed skill and lock entry.
+- `skill remove --all`: uninstall all skills and clear the lock.
 - `skill list`: list installed skills.
 - `skill add-registry <git-url>`: add a registry repo.
 - `skill sync`: update registry index.
@@ -44,6 +45,7 @@ skill search aws-lambda
 skill install aws/skills/aws-lambda@latest
 skill upgrade
 skill remove aws/skills/aws-lambda
+skill remove --all
 ```
 
 ## Reference formats

@@ -72,6 +72,11 @@ The goal is to write **clean, idiomatic, well-tested Rust**, with consistent for
     * Update relevant documentation (`README.md`, `docs/`, crate-level docs, or item docs).
 * Keep examples accurate and consistent with the codebase.
 
+## TUI requirement
+
+* This project requires a modern terminal UI for user feedback and selection.
+* Use `ratatui` for TUI components and keep the TUI responsive and informative across workflows.
+
 ---
 
 ## Snapshot tests (if used)
