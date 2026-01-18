@@ -46,3 +46,11 @@ install:
 # Clean build artifacts.
 clean:
   cargo clean
+
+# Create a local playground with sample repos.
+playground:
+  scripts/playground_setup.sh
+
+# Reset the playground (deletes playground/work).
+playground-clean:
+  CLEAN=1 scripts/playground_setup.sh
