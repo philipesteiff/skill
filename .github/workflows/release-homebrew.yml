@@ -1,0 +1,115 @@
+name: Release Homebrew Formula
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  BINARY_NAME: skill
+  FORMULA_NAME: skill
+  HOMEBREW_TAP: ${{ vars.HOMEBREW_TAP }}
+  STRICT_RELEASE: ${{ vars.STRICT_RELEASE }}
+
+jobs:
+  release-homebrew:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: taiki-e/install-action@just
+
+      - name: Lint
+        run: just lint
+
+      - name: Test
+        run: just test
+
+      - name: Verify tag matches Cargo.toml version (strict)
+        if: env.STRICT_RELEASE == 'true'
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION_TOML=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          if [ "v${VERSION_TOML}" != "${TAG}" ]; then
+            echo "Tag ${TAG} does not match Cargo.toml version v${VERSION_TOML}" >&2
+            exit 1
+          fi
+
+      - name: Package release artifact
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          scripts/package.sh
+          ARCH="$(uname -m)"
+          ARCHIVE="dist/skill-darwin-${ARCH}.tar.gz"
+          if [ ! -f "${ARCHIVE}" ]; then
+            echo "Missing ${ARCHIVE}" >&2
+            ls -la dist
+            exit 1
+          fi
+          echo "TAG=${TAG}" >> "${GITHUB_ENV}"
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "ARCH=${ARCH}" >> "${GITHUB_ENV}"
+          echo "ARCHIVE=${ARCHIVE}" >> "${GITHUB_ENV}"
+
+      - name: Compute checksum
+        run: |
+          CHECKSUM=$(shasum -a 256 "${ARCHIVE}" | awk '{print $1}')
+          echo "CHECKSUM=${CHECKSUM}" >> "${GITHUB_ENV}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ARCHIVE }}
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HOMEBREW_TAP }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Homebrew formula
+        run: |
+          if [ -z "${HOMEBREW_TAP}" ]; then
+            echo "HOMEBREW_TAP is not set (vars.HOMEBREW_TAP)" >&2
+            exit 1
+          fi
+          FORMULA_CLASS=$(echo "${FORMULA_NAME}" | awk -F'[-_]' '{for (i=1;i<=NF;i++){printf toupper(substr($i,1,1)) substr($i,2)} }')
+          FORMULA_DIR="homebrew-tap/Formula"
+          FORMULA_PATH="${FORMULA_DIR}/${FORMULA_NAME}.rb"
+          REPO_SLUG="${GITHUB_REPOSITORY}"
+          ASSET_URL="https://github.com/${REPO_SLUG}/releases/download/${TAG}/skill-darwin-${ARCH}.tar.gz"
+          mkdir -p "${FORMULA_DIR}"
+          cat > "${FORMULA_PATH}" <<RUBY
+class ${FORMULA_CLASS} < Formula
+  desc "CLI for managing skills"
+  homepage "https://github.com/${REPO_SLUG}"
+  url "${ASSET_URL}"
+  sha256 "${CHECKSUM}"
+  version "${VERSION}"
+
+  def install
+    bin.install "${BINARY_NAME}"
+  end
+end
+RUBY
+
+      - name: Commit and push formula
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "Formula/${FORMULA_NAME}.rb"
+          git commit -m "${FORMULA_NAME} ${TAG}"
+          git push
