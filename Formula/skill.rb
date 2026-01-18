@@ -1,12 +1,11 @@
 class Skill < Formula
   desc "CLI for managing skills"
   homepage "https://github.com/philipesteiff/skill"
-  url "git@github.com:philipesteiff/skill.git", using: :git, tag: "v0.0.3", revision: "ef13f41f2199dbd025992f24eb0bdc7d6c9530cc"
+  url "https://github.com/philipesteiff/skill/releases/download/v0.0.3/skill-darwin-arm64.tar.gz"
+  sha256 "9aeb6cec993a113bbbd5b038d7d9d49bc06324bb88ff3a1dee4cb2862a04fdbb"
   version "0.0.3"
 
-  depends_on "rust" => :build
-
   def install
-    system "cargo", "install", *std_cargo_args
+    bin.install "skill"
   end
 end
