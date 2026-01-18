@@ -49,6 +49,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
+          REVISION=$(git rev-parse "${TAG}")
           scripts/package.sh
           ARCH="$(uname -m)"
           ARCHIVE="dist/skill-darwin-${ARCH}.tar.gz"
@@ -59,6 +60,7 @@ jobs:
           fi
           echo "TAG=${TAG}" >> "${GITHUB_ENV}"
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "REVISION=${REVISION}" >> "${GITHUB_ENV}"
           echo "ARCH=${ARCH}" >> "${GITHUB_ENV}"
           echo "ARCHIVE=${ARCHIVE}" >> "${GITHUB_ENV}"
 
@@ -83,18 +85,18 @@ jobs:
           FORMULA_DIR="Formula"
           FORMULA_PATH="${FORMULA_DIR}/${FORMULA_NAME}.rb"
           REPO_SLUG="${GITHUB_REPOSITORY}"
-          ASSET_URL="https://github.com/${REPO_SLUG}/releases/download/${TAG}/skill-darwin-${ARCH}.tar.gz"
           mkdir -p "${FORMULA_DIR}"
           cat > "${FORMULA_PATH}" <<RUBY
           class ${FORMULA_CLASS} < Formula
             desc "CLI for managing skills"
             homepage "https://github.com/${REPO_SLUG}"
-            url "${ASSET_URL}"
-            sha256 "${CHECKSUM}"
+            url "git@github.com:${REPO_SLUG}.git", using: :git, tag: "${TAG}", revision: "${REVISION}"
             version "${VERSION}"
 
+            depends_on "rust" => :build
+
             def install
-              bin.install "${BINARY_NAME}"
+              system "cargo", "install", *std_cargo_args
             end
           end
           RUBY
