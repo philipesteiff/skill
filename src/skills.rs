@@ -28,6 +28,10 @@ struct Frontmatter {
 }
 
 pub fn read_skill_spec(skill_dir: &Path) -> Result<SkillSpec> {
+    read_skill_spec_with_options(skill_dir, true)
+}
+
+pub fn read_skill_spec_with_options(skill_dir: &Path, strict: bool) -> Result<SkillSpec> {
     let skill_md = skill_dir.join("SKILL.md");
     let contents = read_to_string(&skill_md)?;
     let frontmatter = parse_frontmatter(&contents)?;
@@ -38,7 +42,7 @@ pub fn read_skill_spec(skill_dir: &Path) -> Result<SkillSpec> {
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow!("invalid skill directory name"))?
         .to_string();
-    if dir_name != frontmatter.name {
+    if strict && dir_name != frontmatter.name {
         return Err(anyhow!(
             "skill name '{}' does not match directory '{}'",
             frontmatter.name,
