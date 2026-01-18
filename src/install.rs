@@ -7,11 +7,11 @@ use crate::config::{Config, RegistryConfig};
 use crate::git;
 use crate::lockfile::{self, LockedSkill};
 use crate::paths::Paths;
+use crate::progress::{QueuedSkill, Reporter, SkillUpdate};
 use crate::refs::{self, Selector};
 use crate::registry;
 use crate::skills;
-use crate::tui;
-use crate::util::{copy_dir_recursive, is_hexish, remove_dir_if_exists, short_sha};
+use crate::util::{copy_dir_recursive, ensure_dir, is_hexish, remove_dir_if_exists, short_sha};
 
 #[derive(Debug, Clone)]
 struct InstallTarget {
@@ -32,22 +32,83 @@ struct RepoSkill {
     path: String,
 }
 
+#[derive(Debug, Clone)]
+struct InvalidSkill {
+    path: String,
+    error: String,
+}
+
+struct RepoScan {
+    skills: Vec<RepoSkill>,
+    invalid_skills: Vec<InvalidSkill>,
+}
+
+fn install_targets(
+    paths: &Paths,
+    reporter: &mut Reporter,
+    targets: Vec<InstallTarget>,
+) -> Result<()> {
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let queue = targets
+        .iter()
+        .map(|target| QueuedSkill {
+            name: target
+                .expected_name
+                .clone()
+                .unwrap_or_else(|| fallback_skill_name(&target.path)),
+            version: target.version.clone(),
+            requested: target.requested.clone(),
+            source: target.repo_url.clone(),
+            commit: target.commit.clone(),
+        })
+        .collect();
+    reporter.queue_skills(queue)?;
+
+    for (index, target) in targets.iter().enumerate() {
+        reporter.begin_skill(index)?;
+        if let Err(err) = install_target(paths, reporter, target) {
+            let _ = reporter.fail_active_skill(err.to_string());
+            return Err(err);
+        }
+        reporter.finish_skill()?;
+    }
+
+    Ok(())
+}
+
+fn fallback_skill_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("skill")
+        .to_string()
+}
+
 pub fn install_reference(
     paths: &Paths,
     config: &Config,
     reference: &str,
     pick: bool,
     registry: Option<&str>,
+    use_tui: bool,
 ) -> Result<()> {
+    let mut reporter = Reporter::new(use_tui)?;
+    reporter.set_context(format!("skill install {}", reference))?;
+    reporter.step(format!("Parsing reference: {}", reference))?;
+
     let parsed = refs::parse_reference(reference);
     let requested = parsed.selector.requested_string();
     let base = parsed.base;
 
     if refs::is_git_url(&base) {
+        reporter.step("Resolving git URL")?;
         let (url, path_opt) = refs::split_git_url(&base);
         let namespace = namespace_from_repo(&url)?;
         let targets = resolve_repo_targets(
             paths,
+            &mut reporter,
             &url,
             path_opt,
             &parsed.selector,
@@ -55,9 +116,8 @@ pub fn install_reference(
             pick,
             namespace,
         )?;
-        for target in targets {
-            install_target(paths, &target)?;
-        }
+        install_targets(paths, &mut reporter, targets)?;
+        reporter.finish("Done")?;
         return Ok(());
     }
 
@@ -71,16 +131,19 @@ pub fn install_reference(
     if let Some(target) = resolve_registry_target(
         paths,
         config,
+        &mut reporter,
         registry,
         &namespace,
         &name,
         &parsed.selector,
         &requested,
     )? {
-        install_target(paths, &target)?;
+        install_targets(paths, &mut reporter, vec![target])?;
+        reporter.finish("Done")?;
         return Ok(());
     }
 
+    reporter.step("Falling back to GitHub shorthand")?;
     let owner = segments[0].clone();
     let repo = segments[1].clone();
     let path_segments: Vec<String> = segments.into_iter().skip(2).collect();
@@ -93,6 +156,7 @@ pub fn install_reference(
     let namespace = owner;
     let targets = resolve_repo_targets(
         paths,
+        &mut reporter,
         &repo_url,
         path_opt,
         &parsed.selector,
@@ -100,10 +164,9 @@ pub fn install_reference(
         pick,
         namespace,
     )?;
-    for target in targets {
-        install_target(paths, &target)?;
-    }
+    install_targets(paths, &mut reporter, targets)?;
 
+    reporter.finish("Done")?;
     Ok(())
 }
 
@@ -118,6 +181,7 @@ pub fn upgrade_latest(paths: &Paths, config: &Config) -> Result<()> {
         registry::sync_registry(paths, registry)?;
     }
 
+    let mut reporter = Reporter::Console;
     let mut updated = 0;
     for entry in lock.skills {
         if entry.requested != "@latest" {
@@ -139,7 +203,7 @@ pub fn upgrade_latest(paths: &Paths, config: &Config) -> Result<()> {
             if target.commit == entry.resolved_commit {
                 continue;
             }
-            install_target(paths, &target)?;
+            install_target(paths, &mut reporter, &target)?;
             updated += 1;
         } else {
             let commit = git::ls_remote_head(&entry.repo_url)?;
@@ -156,7 +220,7 @@ pub fn upgrade_latest(paths: &Paths, config: &Config) -> Result<()> {
                 requested: entry.requested.clone(),
                 registry_id: None,
             };
-            install_target(paths, &target)?;
+            install_target(paths, &mut reporter, &target)?;
             updated += 1;
         }
     }
@@ -189,6 +253,27 @@ pub fn remove_skill(paths: &Paths, reference: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn remove_all_skills(paths: &Paths) -> Result<()> {
+    let mut lock = lockfile::load(paths)?;
+    if lock.skills.is_empty() {
+        remove_dir_if_exists(&paths.installed_dir())?;
+        ensure_dir(&paths.installed_dir())?;
+        println!("No installed skills");
+        return Ok(());
+    }
+
+    let count = lock.skills.len();
+    for entry in &lock.skills {
+        remove_dir_if_exists(Path::new(&entry.install_dir))?;
+    }
+    lock.skills.clear();
+    lockfile::save(paths, &lock)?;
+    remove_dir_if_exists(&paths.installed_dir())?;
+    ensure_dir(&paths.installed_dir())?;
+    println!("Removed {} skill(s)", count);
+    Ok(())
+}
+
 pub fn list_installed(paths: &Paths) -> Result<()> {
     let lock = lockfile::load(paths)?;
     if lock.skills.is_empty() {
@@ -210,12 +295,14 @@ pub fn list_installed(paths: &Paths) -> Result<()> {
 fn resolve_registry_target(
     paths: &Paths,
     config: &Config,
+    reporter: &mut Reporter,
     registry_selector: Option<&str>,
     namespace: &str,
     name: &str,
     selector: &Selector,
     requested: &str,
 ) -> Result<Option<InstallTarget>> {
+    reporter.step("Checking registries for a match")?;
     let mut matches = Vec::new();
     let mut selector_matched = false;
     for registry in &config.registries {
@@ -245,6 +332,7 @@ fn resolve_registry_target(
         ));
     }
 
+    reporter.step("Resolving version from registry")?;
     let (registry, row) = matches.remove(0);
     let (commit, version) = resolve_commit_from_registry(paths, &registry, selector, &row)?;
 
@@ -315,6 +403,7 @@ fn resolve_commit_from_registry(
 
 fn resolve_repo_targets(
     paths: &Paths,
+    reporter: &mut Reporter,
     repo_url: &str,
     path_opt: Option<String>,
     selector: &Selector,
@@ -322,31 +411,43 @@ fn resolve_repo_targets(
     pick: bool,
     namespace: String,
 ) -> Result<Vec<InstallTarget>> {
+    reporter.step("Resolving commit from git")?;
     let commit = resolve_direct_commit(repo_url, selector)?;
+
+    reporter.step("Preparing local mirror cache")?;
     let mirror_path = paths.cache_repo_path(repo_url);
-    git::ensure_mirror(repo_url, &mirror_path)?;
-    git::fetch_commit(&mirror_path, &commit)?;
+    let repo_url_owned = repo_url.to_string();
+    let mirror_path_owned = mirror_path.clone();
+    run_with_feedback(reporter, move || {
+        git::ensure_mirror(&repo_url_owned, &mirror_path_owned)
+    })?;
 
-    if let Some(path) = path_opt {
-        return Ok(vec![InstallTarget {
-            namespace,
-            expected_name: None,
-            repo_url: repo_url.to_string(),
-            path,
-            commit,
-            version: None,
-            requested: requested.to_string(),
-            registry_id: None,
-        }]);
+    reporter.step("Fetching commit into cache (may take a while)")?;
+    let mirror_path_owned = mirror_path.clone();
+    let commit_owned = commit.clone();
+    run_with_feedback(reporter, move || {
+        git::fetch_commit(&mirror_path_owned, &commit_owned)
+    })?;
+
+    reporter.step("Scanning repo for skills")?;
+    let scan = scan_repo_skills(&mirror_path, &commit, path_opt.as_deref())?;
+    for invalid in scan.invalid_skills {
+        reporter.step(format!(
+            "Invalid skill at {} ({})",
+            invalid.path, invalid.error
+        ))?;
+    }
+    if scan.skills.is_empty() {
+        let scope = path_opt
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())
+            .map(|path| format!(" at {}", path))
+            .unwrap_or_default();
+        return Err(anyhow!("no valid SKILL.md found in repo{}", scope));
     }
 
-    let skills = scan_repo_skills(&mirror_path, &commit)?;
-    if skills.is_empty() {
-        return Err(anyhow!("no SKILL.md found in repo"));
-    }
-
-    if skills.len() == 1 {
-        let skill = &skills[0];
+    if scan.skills.len() == 1 {
+        let skill = &scan.skills[0];
         return Ok(vec![InstallTarget {
             namespace,
             expected_name: Some(skill.name.clone()),
@@ -360,16 +461,17 @@ fn resolve_repo_targets(
     }
 
     if pick {
-        let items: Vec<String> = skills
+        let items: Vec<String> = scan
+            .skills
             .iter()
             .map(|skill| format!("{} - {}", skill.name, skill.description))
             .collect();
-        let choice = tui::pick_from_list("Select a skill", &items)?;
+        let choice = reporter.pick_from_list("Select a skill", &items)?;
         let Some(idx) = choice else {
             println!("Install cancelled");
             return Ok(Vec::new());
         };
-        let skill = &skills[idx];
+        let skill = &scan.skills[idx];
         return Ok(vec![InstallTarget {
             namespace,
             expected_name: Some(skill.name.clone()),
@@ -383,7 +485,7 @@ fn resolve_repo_targets(
     }
 
     let mut targets = Vec::new();
-    for skill in skills {
+    for skill in scan.skills {
         targets.push(InstallTarget {
             namespace: namespace.clone(),
             expected_name: Some(skill.name),
@@ -420,13 +522,28 @@ fn namespace_from_repo(repo_url: &str) -> Result<String> {
     Err(anyhow!("unsupported repo URL: {}", repo_url))
 }
 
-fn scan_repo_skills(mirror_path: &Path, commit: &str) -> Result<Vec<RepoSkill>> {
+fn scan_repo_skills(
+    mirror_path: &Path,
+    commit: &str,
+    base_path: Option<&str>,
+) -> Result<RepoScan> {
     let files = git::list_files(mirror_path, commit)?;
     let mut seen = HashSet::new();
     let mut skills = Vec::new();
+    let mut invalid_skills = Vec::new();
+    let base_prefix = base_path
+        .map(|path| path.trim_matches('/'))
+        .map(|path| path.trim_start_matches("./"))
+        .filter(|path| !path.is_empty())
+        .map(|path| format!("{path}/"));
 
     for file in files {
         if !file.ends_with("SKILL.md") {
+            continue;
+        }
+        if let Some(prefix) = &base_prefix
+            && !file.starts_with(prefix)
+        {
             continue;
         }
         let path = Path::new(&file);
@@ -440,28 +557,59 @@ fn scan_repo_skills(mirror_path: &Path, commit: &str) -> Result<Vec<RepoSkill>> 
         }
         let contents = git::show_file(mirror_path, commit, &file)?;
         let dir_name = dir.file_name().and_then(|name| name.to_str()).unwrap_or("");
-        let summary = skills::parse_skill_summary(&contents, dir_name)?;
-        skills.push(RepoSkill {
-            name: summary.name,
-            description: summary.description,
-            path: dir_str,
-        });
+        match skills::parse_skill_summary(&contents, dir_name) {
+            Ok(summary) => {
+                skills.push(RepoSkill {
+                    name: summary.name,
+                    description: summary.description,
+                    path: dir_str,
+                });
+            }
+            Err(err) => {
+                invalid_skills.push(InvalidSkill {
+                    path: dir_str,
+                    error: err.to_string(),
+                });
+                continue;
+            }
+        }
     }
 
-    Ok(skills)
+    Ok(RepoScan {
+        skills,
+        invalid_skills,
+    })
 }
 
-fn install_target(paths: &Paths, target: &InstallTarget) -> Result<()> {
+fn install_target(
+    paths: &Paths,
+    reporter: &mut Reporter,
+    target: &InstallTarget,
+) -> Result<()> {
     if target.path.trim().is_empty() {
         return Err(anyhow!("missing skill path"));
     }
-    let mirror_path = paths.cache_repo_path(&target.repo_url);
-    git::ensure_mirror(&target.repo_url, &mirror_path)?;
-    git::fetch_commit(&mirror_path, &target.commit)?;
 
+    reporter.step("Ensuring mirror cache")?;
+    let mirror_path = paths.cache_repo_path(&target.repo_url);
+    let repo_url_owned = target.repo_url.clone();
+    let mirror_path_owned = mirror_path.clone();
+    run_with_feedback(reporter, move || {
+        git::ensure_mirror(&repo_url_owned, &mirror_path_owned)
+    })?;
+
+    reporter.step("Fetching commit (may take a while)")?;
+    let mirror_path_owned = mirror_path.clone();
+    let commit_owned = target.commit.clone();
+    run_with_feedback(reporter, move || {
+        git::fetch_commit(&mirror_path_owned, &commit_owned)
+    })?;
+
+    reporter.step("Extracting skill directory")?;
     let temp = tempdir()?;
     git::archive_path(&mirror_path, &target.commit, &target.path, temp.path())?;
 
+    reporter.step("Validating SKILL.md")?;
     let skill_dir = temp.path().join(&target.path);
     let spec = skills::read_skill_spec(&skill_dir)?;
 
@@ -476,6 +624,10 @@ fn install_target(paths: &Paths, target: &InstallTarget) -> Result<()> {
     }
 
     let resolved_version = target.version.clone().or(spec.version.clone());
+    reporter.update_active_skill(SkillUpdate {
+        name: Some(spec.name.clone()),
+        version: resolved_version.clone(),
+    })?;
     let version_label = resolved_version.clone().unwrap_or_else(|| {
         if target.requested == "@latest" {
             "latest".to_string()
@@ -484,6 +636,7 @@ fn install_target(paths: &Paths, target: &InstallTarget) -> Result<()> {
         }
     });
 
+    reporter.step("Copying files to skills home")?;
     let skill_root = paths
         .installed_dir()
         .join(&target.namespace)
@@ -492,6 +645,7 @@ fn install_target(paths: &Paths, target: &InstallTarget) -> Result<()> {
     let install_dir = skill_root.join(&version_label);
     copy_dir_recursive(&skill_dir, &install_dir)?;
 
+    reporter.step("Updating lockfile")?;
     let mut lock = lockfile::load(paths)?;
     let entry = LockedSkill {
         namespace: target.namespace.clone(),
@@ -507,10 +661,35 @@ fn install_target(paths: &Paths, target: &InstallTarget) -> Result<()> {
     lockfile::upsert(&mut lock, entry);
     lockfile::save(paths, &lock)?;
 
-    println!(
+    reporter.step(format!(
         "Installed {} (commit {})",
         install_dir.display(),
         short_sha(&target.commit)
-    );
+    ))?;
     Ok(())
+}
+
+fn run_with_feedback<F, T>(reporter: &mut Reporter, task: F) -> Result<T>
+where
+    F: Send + 'static + FnOnce() -> Result<T>,
+    T: Send + 'static,
+{
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let result = task();
+        let _ = tx.send(result);
+    });
+
+    loop {
+        match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(result) => return result,
+            Err(mpsc::RecvTimeoutError::Timeout) => reporter.tick()?,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err(anyhow!("operation canceled"));
+            }
+        }
+    }
 }

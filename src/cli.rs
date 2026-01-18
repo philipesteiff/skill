@@ -32,11 +32,16 @@ pub struct InstallArgs {
     pub pick: bool,
     #[arg(long)]
     pub registry: Option<String>,
+    #[arg(long)]
+    pub tui: bool,
 }
 
 #[derive(Args)]
 pub struct RemoveArgs {
-    pub reference: String,
+    #[arg(required_unless_present = "all")]
+    pub reference: Option<String>,
+    #[arg(long, conflicts_with = "reference")]
+    pub all: bool,
 }
 
 #[derive(Args)]

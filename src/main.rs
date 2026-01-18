@@ -8,6 +8,7 @@ mod git;
 mod install;
 mod lockfile;
 mod paths;
+mod progress;
 mod publish;
 mod refs;
 mod registry;
@@ -33,6 +34,7 @@ fn main() -> Result<()> {
                 &args.reference,
                 args.pick,
                 args.registry.as_deref(),
+                args.tui || args.pick,
             )?;
         }
         cli::Commands::Upgrade => {
@@ -42,7 +44,11 @@ fn main() -> Result<()> {
         }
         cli::Commands::Remove(args) => {
             paths.ensure_base_dirs()?;
-            install::remove_skill(&paths, &args.reference)?;
+            if args.all {
+                install::remove_all_skills(&paths)?;
+            } else if let Some(reference) = args.reference.as_deref() {
+                install::remove_skill(&paths, reference)?;
+            }
         }
         cli::Commands::List => {
             paths.ensure_base_dirs()?;
