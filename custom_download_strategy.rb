@@ -22,6 +22,10 @@ class GithubPrivateReleaseDownloadStrategy < CurlDownloadStrategy
     @filename = filename
   end
 
+  def resolve_url_basename_time_file_size(url, timeout: nil)
+    [url, parse_basename(url), nil, nil, nil, false]
+  end
+
   def api_headers
     token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || ENV["HOMEBREW_GITHUB_TOKEN"]
     return {} if token.nil? || token.empty?
