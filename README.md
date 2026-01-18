@@ -84,6 +84,7 @@ Invalid skills are skipped during repo installs and reported in the install logs
 ## Installation
 Homebrew:
 ```bash
+brew tap philipesteiff/tap
 brew install skill
 ```
 
