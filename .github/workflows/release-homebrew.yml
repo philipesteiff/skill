@@ -118,7 +118,7 @@ jobs:
             end
 
             def fetch_release
-              curl_download(@api_url, temporary_path, *api_headers_to_args, "-H", "Accept: application/vnd.github+json")
+              curl_download(@api_url, to: temporary_path, *api_headers_to_args, "-H", "Accept: application/vnd.github+json")
               JSON.parse(File.read(temporary_path))
             end
 
@@ -126,14 +126,14 @@ jobs:
               api_headers.flat_map { |k, v| ["-H", "#{k}: #{v}"] }
             end
 
-            def _fetch(url:, to:, **)
+            def _fetch(url:, resolved_url:, timeout:)
               json = fetch_release
               assets = json.fetch("assets", [])
               asset = assets.find { |entry| entry["name"] == @filename }
               raise "Asset #{@filename} not found in #{@api_url}" if asset.nil?
 
               download_url = asset.fetch("url")
-              curl_download(download_url, to, *api_headers_to_args, "-H", "Accept: application/octet-stream")
+              curl_download(download_url, to: temporary_path, *api_headers_to_args, "-H", "Accept: application/octet-stream", timeout: timeout)
             end
           end
           RUBY
