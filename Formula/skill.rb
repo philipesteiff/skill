@@ -1,9 +1,9 @@
 class Skill < Formula
   desc "CLI for managing skills"
   homepage "https://github.com/philipesteiff/skill"
-  url "https://github.com/philipesteiff/skill/releases/download/v0.0.9/skill-darwin-arm64.tar.gz"
-  sha256 "92ca40184b69a9b13bbc4dfee4aec9183964b43349a658a0b7a915714e7fe7a6"
-  version "0.0.9"
+  url "https://github.com/philipesteiff/skill/releases/download/v0.0.10/skill-darwin-arm64.tar.gz"
+  sha256 "8e2654c22a7c8c65c47b27c0bdff48db342ea10098c1b13172863376d0e43fce"
+  version "0.0.10"
 
   def install
     bin.install "skill"
