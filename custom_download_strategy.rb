@@ -1,4 +1,5 @@
 require "download_strategy"
+require "json"
 
 class GithubPrivateReleaseDownloadStrategy < CurlDownloadStrategy
   def initialize(url, name, version, **meta)
@@ -37,13 +38,13 @@ class GithubPrivateReleaseDownloadStrategy < CurlDownloadStrategy
     api_headers.flat_map { |k, v| ["-H", "#{k}: #{v}"] }
   end
 
-  def _fetch(url:, **)
+  def _fetch(url:, to:, **)
     json = fetch_release
     assets = json.fetch("assets", [])
     asset = assets.find { |entry| entry["name"] == @filename }
     raise "Asset #{@filename} not found in #{@api_url}" if asset.nil?
 
     download_url = asset.fetch("url")
-    curl_download(download_url, cached_location, *api_headers_to_args, "-H", "Accept: application/octet-stream")
+    curl_download(download_url, to, *api_headers_to_args, "-H", "Accept: application/octet-stream")
   end
 end
