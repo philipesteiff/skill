@@ -322,7 +322,7 @@ fn expanded_lines(skill: &InstallSkill, width: u16) -> Vec<Line<'_>> {
 
 fn skill_status_span(skill: &InstallSkill) -> Span<'static> {
     match skill.state {
-        SkillState::Queued => "[ ]".dim().into(),
+        SkillState::Queued => "[ ]".dim(),
         SkillState::Running => Span::styled("[>]", theme::accent_style()),
         SkillState::Done => Span::styled("[✓]", theme::success_style()),
         SkillState::Failed => Span::styled("[✗]", theme::error_style()),
@@ -347,9 +347,7 @@ fn step_status(skill: &InstallSkill, step: InstallStep) -> StepStatus {
 }
 
 fn expanded_skill_index(model: &InstallViewModel) -> Option<usize> {
-    let Some(index) = model.active_skill else {
-        return None;
-    };
+    let index = model.active_skill?;
     model.skills.get(index).and_then(|skill| {
         if matches!(skill.state, SkillState::Running | SkillState::Failed) {
             Some(index)

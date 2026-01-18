@@ -153,22 +153,14 @@ fn install_reference_with_reporter(
     let parsed = refs::parse_reference(reference);
     let requested = parsed.selector.requested_string();
     let base = parsed.base;
+    let mut ctx = ResolveContext::new(paths, reporter, &parsed.selector, &requested);
 
     if refs::is_git_url(&base) {
-        reporter.step("Resolving git URL")?;
+        ctx.reporter.step("Resolving git URL")?;
         let (url, path_opt) = refs::split_git_url(&base);
         let namespace = namespace_from_repo(&url)?;
-        let targets = resolve_repo_targets(
-            paths,
-            reporter,
-            &url,
-            path_opt,
-            &parsed.selector,
-            &requested,
-            pick,
-            namespace,
-        )?;
-        install_targets(paths, reporter, targets)?;
+        let targets = resolve_repo_targets(&mut ctx, &url, path_opt, pick, namespace)?;
+        install_targets(paths, ctx.reporter, targets)?;
         return Ok(());
     }
 
@@ -179,21 +171,12 @@ fn install_reference_with_reporter(
     let namespace = segments.first().cloned().unwrap_or_default();
     let name = segments.last().cloned().unwrap_or_default();
 
-    if let Some(target) = resolve_registry_target(
-        paths,
-        config,
-        reporter,
-        registry,
-        &namespace,
-        &name,
-        &parsed.selector,
-        &requested,
-    )? {
-        install_targets(paths, reporter, vec![target])?;
+    if let Some(target) = resolve_registry_target(&mut ctx, config, registry, &namespace, &name)? {
+        install_targets(paths, ctx.reporter, vec![target])?;
         return Ok(());
     }
 
-    reporter.step("Falling back to GitHub shorthand")?;
+    ctx.reporter.step("Falling back to GitHub shorthand")?;
     let owner = segments[0].clone();
     let repo = segments[1].clone();
     let path_segments: Vec<String> = segments.into_iter().skip(2).collect();
@@ -204,17 +187,8 @@ fn install_reference_with_reporter(
     };
     let repo_url = format!("https://github.com/{owner}/{repo}.git");
     let namespace = owner;
-    let targets = resolve_repo_targets(
-        paths,
-        reporter,
-        &repo_url,
-        path_opt,
-        &parsed.selector,
-        &requested,
-        pick,
-        namespace,
-    )?;
-    install_targets(paths, reporter, targets)?;
+    let targets = resolve_repo_targets(&mut ctx, &repo_url, path_opt, pick, namespace)?;
+    install_targets(paths, ctx.reporter, targets)?;
 
     Ok(())
 }
@@ -342,17 +316,37 @@ pub fn list_installed(paths: &Paths, output: &mut impl Output) -> Result<()> {
     Ok(())
 }
 
+struct ResolveContext<'a> {
+    paths: &'a Paths,
+    reporter: &'a mut Reporter,
+    selector: &'a Selector,
+    requested: &'a str,
+}
+
+impl<'a> ResolveContext<'a> {
+    fn new(
+        paths: &'a Paths,
+        reporter: &'a mut Reporter,
+        selector: &'a Selector,
+        requested: &'a str,
+    ) -> Self {
+        Self {
+            paths,
+            reporter,
+            selector,
+            requested,
+        }
+    }
+}
+
 fn resolve_registry_target(
-    paths: &Paths,
+    ctx: &mut ResolveContext<'_>,
     config: &Config,
-    reporter: &mut Reporter,
     registry_selector: Option<&str>,
     namespace: &str,
     name: &str,
-    selector: &Selector,
-    requested: &str,
 ) -> Result<Option<InstallTarget>> {
-    reporter.step("Checking registries for a match")?;
+    ctx.reporter.step("Checking registries for a match")?;
     let mut matches = Vec::new();
     let mut selector_matched = false;
     for registry in &config.registries {
@@ -362,7 +356,7 @@ fn resolve_registry_target(
             }
             selector_matched = true;
         }
-        if let Some(row) = registry::find_by_namespace_name(paths, registry, namespace, name)? {
+        if let Some(row) = registry::find_by_namespace_name(ctx.paths, registry, namespace, name)? {
             matches.push((registry.clone(), row));
         }
     }
@@ -382,9 +376,9 @@ fn resolve_registry_target(
         ));
     }
 
-    reporter.step("Resolving version from registry")?;
+    ctx.reporter.step("Resolving version from registry")?;
     let (registry, row) = matches.remove(0);
-    let (commit, version) = resolve_commit_from_registry(paths, &registry, selector, &row)?;
+    let (commit, version) = resolve_commit_from_registry(ctx.paths, &registry, ctx.selector, &row)?;
 
     Ok(Some(InstallTarget {
         namespace: row.namespace,
@@ -393,7 +387,7 @@ fn resolve_registry_target(
         path: row.path,
         commit,
         version,
-        requested: requested.to_string(),
+        requested: ctx.requested.to_string(),
         registry_id: Some(registry.id),
     }))
 }
@@ -452,37 +446,35 @@ fn resolve_commit_from_registry(
 }
 
 fn resolve_repo_targets(
-    paths: &Paths,
-    reporter: &mut Reporter,
+    ctx: &mut ResolveContext<'_>,
     repo_url: &str,
     path_opt: Option<String>,
-    selector: &Selector,
-    requested: &str,
     pick: bool,
     namespace: String,
 ) -> Result<Vec<InstallTarget>> {
-    reporter.step("Resolving commit from git")?;
-    let commit = resolve_direct_commit(repo_url, selector)?;
+    ctx.reporter.step("Resolving commit from git")?;
+    let commit = resolve_direct_commit(repo_url, ctx.selector)?;
 
-    reporter.step("Preparing local mirror cache")?;
-    let mirror_path = paths.cache_repo_path(repo_url);
+    ctx.reporter.step("Preparing local mirror cache")?;
+    let mirror_path = ctx.paths.cache_repo_path(repo_url);
     let repo_url_owned = repo_url.to_string();
     let mirror_path_owned = mirror_path.clone();
-    run_with_feedback(reporter, move || {
+    run_with_feedback(ctx.reporter, move || {
         git::ensure_mirror(&repo_url_owned, &mirror_path_owned)
     })?;
 
-    reporter.step("Fetching commit into cache (may take a while)")?;
+    ctx.reporter
+        .step("Fetching commit into cache (may take a while)")?;
     let mirror_path_owned = mirror_path.clone();
     let commit_owned = commit.clone();
-    run_with_feedback(reporter, move || {
+    run_with_feedback(ctx.reporter, move || {
         git::fetch_commit(&mirror_path_owned, &commit_owned)
     })?;
 
-    reporter.step("Scanning repo for skills")?;
+    ctx.reporter.step("Scanning repo for skills")?;
     let scan = scan_repo_skills(&mirror_path, &commit, path_opt.as_deref())?;
     for invalid in scan.invalid_skills {
-        reporter.step(format!(
+        ctx.reporter.step(format!(
             "Invalid skill at {} ({})",
             invalid.path, invalid.error
         ))?;
@@ -505,7 +497,7 @@ fn resolve_repo_targets(
             path: skill.path.clone(),
             commit,
             version: None,
-            requested: requested.to_string(),
+            requested: ctx.requested.to_string(),
             registry_id: None,
         }]);
     }
@@ -516,9 +508,9 @@ fn resolve_repo_targets(
             .iter()
             .map(|skill| format!("{} - {}", skill.name, skill.description))
             .collect();
-        let choice = reporter.pick_from_list("Select a skill", &items)?;
+        let choice = ctx.reporter.pick_from_list("Select a skill", &items)?;
         let Some(idx) = choice else {
-            reporter.step("Install cancelled")?;
+            ctx.reporter.step("Install cancelled")?;
             return Ok(Vec::new());
         };
         let skill = &scan.skills[idx];
@@ -529,7 +521,7 @@ fn resolve_repo_targets(
             path: skill.path.clone(),
             commit,
             version: None,
-            requested: requested.to_string(),
+            requested: ctx.requested.to_string(),
             registry_id: None,
         }]);
     }
@@ -543,7 +535,7 @@ fn resolve_repo_targets(
             path: skill.path,
             commit: commit.clone(),
             version: None,
-            requested: requested.to_string(),
+            requested: ctx.requested.to_string(),
             registry_id: None,
         });
     }
