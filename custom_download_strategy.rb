@@ -30,7 +30,7 @@ class GithubPrivateReleaseDownloadStrategy < CurlDownloadStrategy
   end
 
   def fetch_release
-    curl_download(@api_url, to: temporary_path, *api_headers_to_args, "-H", "Accept: application/vnd.github+json")
+    curl_download(@api_url, *api_headers_to_args, "-H", "Accept: application/vnd.github+json", to: temporary_path)
     JSON.parse(File.read(temporary_path))
   end
 
@@ -45,6 +45,11 @@ class GithubPrivateReleaseDownloadStrategy < CurlDownloadStrategy
     raise "Asset #{@filename} not found in #{@api_url}" if asset.nil?
 
     download_url = asset.fetch("url")
-    curl_download(download_url, to: temporary_path, *api_headers_to_args, "-H", "Accept: application/octet-stream", timeout: timeout)
+    curl_download(download_url,
+                  *api_headers_to_args,
+                  "-H",
+                  "Accept: application/octet-stream",
+                  to: temporary_path,
+                  timeout: timeout)
   end
 end
