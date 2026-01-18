@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use std::ffi::OsStr;
+use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,6 +15,8 @@ where
     if let Some(cwd) = cwd {
         cmd.current_dir(cwd);
     }
+    cmd.env("GIT_TERMINAL_PROMPT", "0");
+    cmd.env("GIT_ASKPASS", "true");
     let output = cmd.output().context("failed to run git")?;
     if !output.status.success() {
         return Err(anyhow!(
@@ -80,12 +83,21 @@ pub fn ensure_mirror(repo_url: &str, mirror_path: &Path) -> Result<()> {
     if mirror_path.exists() {
         return Ok(());
     }
+    if let Some(parent) = mirror_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    run_git(
+        ["init", "--bare", mirror_path.to_str().unwrap_or(".")],
+        None,
+    )?;
     run_git(
         [
-            "clone",
-            "--mirror",
-            repo_url,
+            "-C",
             mirror_path.to_str().unwrap_or("."),
+            "remote",
+            "add",
+            "origin",
+            repo_url,
         ],
         None,
     )?;
@@ -98,6 +110,8 @@ pub fn fetch_commit(mirror_path: &Path, commit: &str) -> Result<()> {
             "-C",
             mirror_path.to_str().unwrap_or("."),
             "fetch",
+            "--depth",
+            "1",
             "origin",
             commit,
         ],
