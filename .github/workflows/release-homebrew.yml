@@ -11,8 +11,8 @@ permissions:
 env:
   BINARY_NAME: skill
   FORMULA_NAME: skill
-  HOMEBREW_TAP: ${{ vars.HOMEBREW_TAP }}
   STRICT_RELEASE: ${{ vars.STRICT_RELEASE }}
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
 jobs:
   release-homebrew:
@@ -72,21 +72,15 @@ jobs:
         with:
           files: ${{ env.ARCHIVE }}
 
-      - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.HOMEBREW_TAP }}
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
+      - name: Switch to default branch for tap update
+        run: |
+          git checkout "${DEFAULT_BRANCH}"
+          git pull --ff-only origin "${DEFAULT_BRANCH}"
 
       - name: Update Homebrew formula
         run: |
-          if [ -z "${HOMEBREW_TAP}" ]; then
-            echo "HOMEBREW_TAP is not set (vars.HOMEBREW_TAP)" >&2
-            exit 1
-          fi
           FORMULA_CLASS=$(echo "${FORMULA_NAME}" | awk -F'[-_]' '{for (i=1;i<=NF;i++){printf toupper(substr($i,1,1)) substr($i,2)} }')
-          FORMULA_DIR="homebrew-tap/Formula"
+          FORMULA_DIR="Formula"
           FORMULA_PATH="${FORMULA_DIR}/${FORMULA_NAME}.rb"
           REPO_SLUG="${GITHUB_REPOSITORY}"
           ASSET_URL="https://github.com/${REPO_SLUG}/releases/download/${TAG}/skill-darwin-${ARCH}.tar.gz"
@@ -107,7 +101,6 @@ jobs:
 
       - name: Commit and push formula
         run: |
-          cd homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "Formula/${FORMULA_NAME}.rb"
