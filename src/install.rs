@@ -6,6 +6,8 @@ use tempfile::tempdir;
 use crate::config::{Config, RegistryConfig};
 use crate::git;
 use crate::lockfile::{self, LockedSkill};
+use crate::manifest;
+use crate::output::Output;
 use crate::paths::Paths;
 use crate::progress::{QueuedSkill, Reporter, SkillUpdate};
 use crate::refs::{self, Selector};
@@ -92,11 +94,61 @@ pub fn install_reference(
     reference: &str,
     pick: bool,
     registry: Option<&str>,
-    use_tui: bool,
 ) -> Result<()> {
-    let mut reporter = Reporter::new(use_tui)?;
-    reporter.set_context(format!("skill install {}", reference))?;
-    reporter.step(format!("Parsing reference: {}", reference))?;
+    let mut reporter = Reporter::new()?;
+    reporter.set_context(format!("skill install {reference}"))?;
+    install_reference_with_reporter(paths, config, reference, pick, registry, &mut reporter)?;
+    reporter.finish("Done")?;
+    Ok(())
+}
+
+pub fn install_manifest(
+    paths: &Paths,
+    config: &Config,
+    manifest_path: &Path,
+    pick: bool,
+    registry: Option<&str>,
+) -> Result<()> {
+    let mut reporter = Reporter::new()?;
+    reporter.set_context("skill install".to_string())?;
+    reporter.step(format!("Loading {}", manifest_path.display()))?;
+    let dependencies = manifest::load_dependencies(manifest_path)?;
+
+    for dependency in dependencies {
+        reporter.step(format!(
+            "Installing dependency {} ({})",
+            dependency.name, dependency.reference
+        ))?;
+        let dependency_registry = dependency.registry.as_deref().or(registry);
+        if let Err(err) = install_reference_with_reporter(
+            paths,
+            config,
+            &dependency.reference,
+            pick,
+            dependency_registry,
+            &mut reporter,
+        ) {
+            return Err(anyhow!(
+                "failed to install dependency {}: {}",
+                dependency.name,
+                err
+            ));
+        }
+    }
+
+    reporter.finish("Installed skills from skills.toml")?;
+    Ok(())
+}
+
+fn install_reference_with_reporter(
+    paths: &Paths,
+    config: &Config,
+    reference: &str,
+    pick: bool,
+    registry: Option<&str>,
+    reporter: &mut Reporter,
+) -> Result<()> {
+    reporter.step(format!("Parsing reference: {reference}"))?;
 
     let parsed = refs::parse_reference(reference);
     let requested = parsed.selector.requested_string();
@@ -108,7 +160,7 @@ pub fn install_reference(
         let namespace = namespace_from_repo(&url)?;
         let targets = resolve_repo_targets(
             paths,
-            &mut reporter,
+            reporter,
             &url,
             path_opt,
             &parsed.selector,
@@ -116,8 +168,7 @@ pub fn install_reference(
             pick,
             namespace,
         )?;
-        install_targets(paths, &mut reporter, targets)?;
-        reporter.finish("Done")?;
+        install_targets(paths, reporter, targets)?;
         return Ok(());
     }
 
@@ -131,15 +182,14 @@ pub fn install_reference(
     if let Some(target) = resolve_registry_target(
         paths,
         config,
-        &mut reporter,
+        reporter,
         registry,
         &namespace,
         &name,
         &parsed.selector,
         &requested,
     )? {
-        install_targets(paths, &mut reporter, vec![target])?;
-        reporter.finish("Done")?;
+        install_targets(paths, reporter, vec![target])?;
         return Ok(());
     }
 
@@ -152,11 +202,11 @@ pub fn install_reference(
     } else {
         Some(path_segments.join("/"))
     };
-    let repo_url = format!("https://github.com/{}/{}.git", owner, repo);
+    let repo_url = format!("https://github.com/{owner}/{repo}.git");
     let namespace = owner;
     let targets = resolve_repo_targets(
         paths,
-        &mut reporter,
+        reporter,
         &repo_url,
         path_opt,
         &parsed.selector,
@@ -164,25 +214,26 @@ pub fn install_reference(
         pick,
         namespace,
     )?;
-    install_targets(paths, &mut reporter, targets)?;
+    install_targets(paths, reporter, targets)?;
 
-    reporter.finish("Done")?;
     Ok(())
 }
 
 pub fn upgrade_latest(paths: &Paths, config: &Config) -> Result<()> {
     let lock = lockfile::load(paths)?;
+    let mut reporter = Reporter::new()?;
+    reporter.set_context("skill upgrade")?;
+
     if lock.skills.is_empty() {
-        println!("No installed skills");
+        reporter.finish("No installed skills")?;
         return Ok(());
     }
 
     for registry in &config.registries {
-        registry::sync_registry(paths, registry)?;
+        registry::sync_registry(paths, registry, &mut reporter)?;
     }
 
-    let mut reporter = Reporter::Console;
-    let mut updated = 0;
+    let mut targets = Vec::new();
     for entry in lock.skills {
         if entry.requested != "@latest" {
             continue;
@@ -203,14 +254,13 @@ pub fn upgrade_latest(paths: &Paths, config: &Config) -> Result<()> {
             if target.commit == entry.resolved_commit {
                 continue;
             }
-            install_target(paths, &mut reporter, &target)?;
-            updated += 1;
+            targets.push(target);
         } else {
             let commit = git::ls_remote_head(&entry.repo_url)?;
             if commit == entry.resolved_commit {
                 continue;
             }
-            let target = InstallTarget {
+            targets.push(InstallTarget {
                 namespace: entry.namespace.clone(),
                 expected_name: Some(entry.name.clone()),
                 repo_url: entry.repo_url.clone(),
@@ -219,22 +269,22 @@ pub fn upgrade_latest(paths: &Paths, config: &Config) -> Result<()> {
                 version: entry.resolved_version.clone(),
                 requested: entry.requested.clone(),
                 registry_id: None,
-            };
-            install_target(paths, &mut reporter, &target)?;
-            updated += 1;
+            });
         }
     }
 
-    if updated == 0 {
-        println!("All @latest skills are up to date");
-    } else {
-        println!("Updated {} skill(s)", updated);
+    if targets.is_empty() {
+        reporter.finish("All @latest skills are up to date")?;
+        return Ok(());
     }
 
+    let updated = targets.len();
+    install_targets(paths, &mut reporter, targets)?;
+    reporter.finish(format!("Updated {updated} skill(s)"))?;
     Ok(())
 }
 
-pub fn remove_skill(paths: &Paths, reference: &str) -> Result<()> {
+pub fn remove_skill(paths: &Paths, reference: &str, output: &mut impl Output) -> Result<()> {
     let parsed = refs::parse_reference(reference);
     let segments = refs::split_segments(&parsed.base);
     if segments.len() < 2 {
@@ -249,16 +299,16 @@ pub fn remove_skill(paths: &Paths, reference: &str) -> Result<()> {
 
     remove_dir_if_exists(Path::new(&entry.install_dir))?;
     lockfile::save(paths, &lock)?;
-    println!("Removed {}/{}", namespace, name);
+    output.line(format!("Removed {namespace}/{name}"))?;
     Ok(())
 }
 
-pub fn remove_all_skills(paths: &Paths) -> Result<()> {
+pub fn remove_all_skills(paths: &Paths, output: &mut impl Output) -> Result<()> {
     let mut lock = lockfile::load(paths)?;
     if lock.skills.is_empty() {
         remove_dir_if_exists(&paths.installed_dir())?;
         ensure_dir(&paths.installed_dir())?;
-        println!("No installed skills");
+        output.line("No installed skills")?;
         return Ok(());
     }
 
@@ -270,24 +320,24 @@ pub fn remove_all_skills(paths: &Paths) -> Result<()> {
     lockfile::save(paths, &lock)?;
     remove_dir_if_exists(&paths.installed_dir())?;
     ensure_dir(&paths.installed_dir())?;
-    println!("Removed {} skill(s)", count);
+    output.line(format!("Removed {count} skill(s)"))?;
     Ok(())
 }
 
-pub fn list_installed(paths: &Paths) -> Result<()> {
+pub fn list_installed(paths: &Paths, output: &mut impl Output) -> Result<()> {
     let lock = lockfile::load(paths)?;
     if lock.skills.is_empty() {
-        println!("No installed skills");
+        output.line("No installed skills")?;
         return Ok(());
     }
 
     for entry in lock.skills {
         let version = entry.resolved_version.as_deref().unwrap_or("latest");
         let commit = short_sha(&entry.resolved_commit);
-        println!(
+        output.line(format!(
             "{}/{} {} ({})",
             entry.namespace, entry.name, version, commit
-        );
+        ))?;
     }
     Ok(())
 }
@@ -468,7 +518,7 @@ fn resolve_repo_targets(
             .collect();
         let choice = reporter.pick_from_list("Select a skill", &items)?;
         let Some(idx) = choice else {
-            println!("Install cancelled");
+            reporter.step("Install cancelled")?;
             return Ok(Vec::new());
         };
         let skill = &scan.skills[idx];

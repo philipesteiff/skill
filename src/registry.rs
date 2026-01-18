@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::RegistryConfig;
 use crate::git;
+use crate::output::Output;
 use crate::paths::Paths;
 use crate::util::{ensure_dir, read_to_string};
 
@@ -54,15 +55,19 @@ pub struct SearchResult {
     pub latest_version: Option<String>,
 }
 
-pub fn sync_registry(paths: &Paths, registry: &RegistryConfig) -> Result<()> {
+pub fn sync_registry(
+    paths: &Paths,
+    registry: &RegistryConfig,
+    output: &mut impl Output,
+) -> Result<()> {
     let repo_dir = paths.registry_repo_dir(&registry.id);
     ensure_dir(paths.registry_dir(&registry.id).as_path())?;
 
     if !repo_dir.exists() {
-        println!("Cloning registry {}...", registry.url);
+        output.line(format!("Cloning registry {}...", registry.url))?;
         git::clone_repo(&registry.url, &repo_dir)?;
     } else {
-        println!("Syncing registry {}...", registry.url);
+        output.line(format!("Syncing registry {}...", registry.url))?;
         git::fetch_repo(&repo_dir)?;
     }
 
@@ -71,14 +76,19 @@ pub fn sync_registry(paths: &Paths, registry: &RegistryConfig) -> Result<()> {
     let previous = fs::read_to_string(&head_path).unwrap_or_default();
     let index_path = paths.registry_index_path(&registry.id);
     if previous.trim() != head || !index_path.exists() {
-        rebuild_index(registry, &repo_dir, &index_path)?;
+        rebuild_index(registry, &repo_dir, &index_path, output)?;
         fs::write(head_path, head)?;
     }
 
     Ok(())
 }
 
-pub fn rebuild_index(registry: &RegistryConfig, repo_dir: &Path, index_path: &Path) -> Result<()> {
+pub fn rebuild_index(
+    registry: &RegistryConfig,
+    repo_dir: &Path,
+    index_path: &Path,
+    output: &mut impl Output,
+) -> Result<()> {
     if index_path.exists() {
         fs::remove_file(index_path)?;
     }
@@ -149,11 +159,16 @@ pub fn rebuild_index(registry: &RegistryConfig, repo_dir: &Path, index_path: &Pa
         )?;
     }
 
-    println!("Indexed registry {}", registry.url);
+    output.line(format!("Indexed registry {}", registry.url))?;
     Ok(())
 }
 
-pub fn search(paths: &Paths, config: &crate::config::Config, query: &str) -> Result<()> {
+pub fn search(
+    paths: &Paths,
+    config: &crate::config::Config,
+    query: &str,
+    output: &mut impl Output,
+) -> Result<()> {
     if config.registries.is_empty() {
         return Err(anyhow!("no registries configured; run skill add-registry"));
     }
@@ -171,7 +186,7 @@ pub fn search(paths: &Paths, config: &crate::config::Config, query: &str) -> Res
     }
 
     if results.is_empty() {
-        println!("No matches for '{}'", query);
+        output.line(format!("No matches for '{query}'"))?;
         return Ok(());
     }
 
@@ -182,7 +197,13 @@ pub fn search(paths: &Paths, config: &crate::config::Config, query: &str) -> Res
             .as_ref()
             .map(|v| format!("@{}", v))
             .unwrap_or_else(|| "".to_string());
-        println!("{}) {}{} - {}", idx + 1, label, version, result.description);
+        output.line(format!(
+            "{}) {}{} - {}",
+            idx + 1,
+            label,
+            version,
+            result.description
+        ))?;
     }
     Ok(())
 }

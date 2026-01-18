@@ -3,17 +3,23 @@ use std::env;
 use std::path::PathBuf;
 
 use crate::lockfile;
+use crate::output::Output;
 use crate::paths::Paths;
 use crate::util::{copy_dir_recursive, ensure_dir, remove_dir_if_exists};
 
-pub fn export_skills(paths: &Paths, target: &str, scope: Option<&str>) -> Result<()> {
+pub fn export_skills(
+    paths: &Paths,
+    target: &str,
+    scope: Option<&str>,
+    output: &mut impl Output,
+) -> Result<()> {
     match target {
-        "codex" => export_codex(paths, scope.unwrap_or("user")),
+        "codex" => export_codex(paths, scope.unwrap_or("user"), output),
         _ => Err(anyhow!("unsupported export target: {}", target)),
     }
 }
 
-fn export_codex(paths: &Paths, scope: &str) -> Result<()> {
+fn export_codex(paths: &Paths, scope: &str, output: &mut impl Output) -> Result<()> {
     let dest_base = match scope {
         "user" => {
             let home = env::var("HOME").map_err(|_| anyhow!("HOME is not set"))?;
@@ -27,7 +33,7 @@ fn export_codex(paths: &Paths, scope: &str) -> Result<()> {
 
     let lockfile = lockfile::load(paths)?;
     if lockfile.skills.is_empty() {
-        println!("No installed skills to export");
+        output.line("No installed skills to export")?;
         return Ok(());
     }
 
@@ -38,6 +44,6 @@ fn export_codex(paths: &Paths, scope: &str) -> Result<()> {
         copy_dir_recursive(&src, &dest)?;
     }
 
-    println!("Exported skills to {}", dest_base.display());
+    output.line(format!("Exported skills to {}", dest_base.display()))?;
     Ok(())
 }

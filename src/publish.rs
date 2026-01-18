@@ -8,13 +8,19 @@ use walkdir::WalkDir;
 
 use crate::config::RegistryConfig;
 use crate::git;
+use crate::output::Output;
 use crate::paths::Paths;
 use crate::registry::{self, RegistryLatest, RegistrySkillFile, RegistryVersion};
 use crate::skills::SkillSpec;
 use crate::util::{parse_github_slug, short_sha};
 
-pub fn publish(paths: &Paths, registry: &RegistryConfig, dry_run: bool) -> Result<()> {
-    registry::sync_registry(paths, registry)?;
+pub fn publish(
+    paths: &Paths,
+    registry: &RegistryConfig,
+    dry_run: bool,
+    output: &mut impl Output,
+) -> Result<()> {
+    registry::sync_registry(paths, registry, output)?;
     let registry_repo = paths.registry_repo_dir(&registry.id);
 
     let status = git::status_porcelain(&registry_repo)?;
@@ -39,7 +45,7 @@ pub fn publish(paths: &Paths, registry: &RegistryConfig, dry_run: bool) -> Resul
         return Err(anyhow!("no SKILL.md files found in repo"));
     }
 
-    println!("Publishing {} skill(s)...", skills.len());
+    output.line(format!("Publishing {} skill(s)...", skills.len()))?;
     let published_at = Utc::now().to_rfc3339();
 
     for skill in skills {
@@ -95,18 +101,20 @@ pub fn publish(paths: &Paths, registry: &RegistryConfig, dry_run: bool) -> Resul
         }
 
         registry::write_skill_file(paths, registry, &entry)?;
-        println!("- {}/{} @{}", namespace, skill.name, version);
+        output.line(format!("- {}/{} @{}", namespace, skill.name, version))?;
     }
 
     let diff = git::diff(&registry_repo)?;
     if diff.trim().is_empty() {
-        println!("No metadata changes to publish");
+        output.line("No metadata changes to publish")?;
         return Ok(());
     }
 
     if dry_run {
-        println!("--- Registry diff (dry-run) ---");
-        println!("{}", diff);
+        output.line("--- Registry diff (dry-run) ---")?;
+        for line in diff.lines() {
+            output.line(line)?;
+        }
         return Ok(());
     }
 
@@ -118,7 +126,7 @@ pub fn publish(paths: &Paths, registry: &RegistryConfig, dry_run: bool) -> Resul
 
     let base = git::default_branch(&registry_repo)?;
     let pr_url = create_pull_request(&registry.url, &branch, &base)?;
-    println!("Opened PR: {}", pr_url);
+    output.line(format!("Opened PR: {}", pr_url))?;
 
     Ok(())
 }

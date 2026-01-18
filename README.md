@@ -91,11 +91,11 @@ skill sync
 skill search aws-lambda
 skill install aws/skills/aws-lambda
 
+# Install dependencies from skills.toml in the current directory
+skill install
+
 # Install with TUI picker when multiple skills exist
 skill install owner/repo --pick
-
-# Force TUI status view for install steps
-skill install owner/repo --tui
 
 # Upgrade/remove/list
 skill upgrade
@@ -105,6 +105,13 @@ skill list
 
 # Publish metadata PR (requires GitHub token)
 GITHUB_TOKEN=... skill publish --registry https://github.com/your-org/skills-registry.git
+```
+
+`skills.toml` format:
+```toml
+[dependencies]
+aws-lambda = "aws/skills/aws-lambda@latest"
+notes = { ref = "owner/repo/notes-skill", registry = "https://github.com/your-org/skills-registry.git" }
 ```
 
 ## Configuration
@@ -140,4 +147,4 @@ just clean
 ```
 
 ## TUI
-Interactive selection and status output use `ratatui` + `crossterm` and require a compatible terminal.
+All commands use a `ratatui` + `crossterm` interface by default and require a compatible terminal.

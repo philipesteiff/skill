@@ -30,6 +30,7 @@ E. Remove a skill: `skill remove aws/skills/aws-lambda` or `skill remove --all`.
 ## CLI surface (v1)
 - `skill search <query>`: search registry index.
 - `skill install <ref>[@latest|@<version>]`: install a skill.
+- `skill install`: install skills listed in `skills.toml` in the current directory.
 - `skill upgrade`: refresh all skills installed with `@latest`.
 - `skill remove <ref>`: remove installed skill and lock entry.
 - `skill remove --all`: uninstall all skills and clear the lock.

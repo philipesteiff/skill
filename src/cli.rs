@@ -27,13 +27,11 @@ pub struct SearchArgs {
 
 #[derive(Args)]
 pub struct InstallArgs {
-    pub reference: String,
+    pub reference: Option<String>,
     #[arg(long)]
     pub pick: bool,
     #[arg(long)]
     pub registry: Option<String>,
-    #[arg(long)]
-    pub tui: bool,
 }
 
 #[derive(Args)]
