@@ -1,6 +1,8 @@
 use anyhow::{Result, anyhow};
 use clap::Parser;
 
+mod agents;
+mod apply;
 mod cli;
 mod config;
 mod export;
@@ -140,6 +142,10 @@ fn main() -> Result<()> {
             with_log_ui(label, |ui| {
                 export::export_skills(&paths, &args.target, args.scope.as_deref(), ui)
             })?;
+        }
+        cli::Commands::Apply => {
+            paths.ensure_base_dirs()?;
+            with_log_ui("skill apply", |ui| apply::apply_installed(&paths, ui))?;
         }
     }
 

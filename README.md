@@ -1,4 +1,4 @@
-# skills
+# skill
 
 A GitHub-only CLI for installing, updating, and publishing Agent Skills (`SKILL.md`) with optional registry indexing. Installs are pinned to commit SHAs for reproducibility.
 
@@ -81,6 +81,12 @@ $HOME/.skills/
 Optional `metadata` can include `version`, `tags`, and `namespace`.
 Invalid skills are skipped during repo installs and reported in the install logs/TUI.
 
+## Installation
+Homebrew:
+```bash
+brew install skill
+```
+
 ## Usage
 ```bash
 # Add a registry repo and sync
@@ -102,6 +108,9 @@ skill upgrade
 skill remove aws/skills/aws-lambda
 skill remove --all
 skill list
+
+# Apply installed skills to agent directories (TUI)
+skill apply
 
 # Publish metadata PR (requires GitHub token)
 GITHUB_TOKEN=... skill publish --registry https://github.com/your-org/skills-registry.git

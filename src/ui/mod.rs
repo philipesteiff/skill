@@ -1,3 +1,4 @@
+pub mod apply;
 pub mod install;
 pub mod log;
 pub mod picker;

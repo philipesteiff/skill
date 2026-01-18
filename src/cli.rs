@@ -18,6 +18,7 @@ pub enum Commands {
     Sync(SyncArgs),
     Publish(PublishArgs),
     Export(ExportArgs),
+    Apply,
 }
 
 #[derive(Args)]

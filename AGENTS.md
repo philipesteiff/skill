@@ -1,4 +1,4 @@
-# Skills project
+# Skill project
 
 These instructions apply anywhere Rust code lives in this repository (crates, tools, libraries, CLIs, TUIs, and tests).
 
