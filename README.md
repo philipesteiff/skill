@@ -82,6 +82,22 @@ Optional `metadata` can include `version`, `tags`, and `namespace`.
 Invalid skills are skipped during repo installs and reported in the install logs/TUI.
 
 ## Installation
+macOS (curl installer):
+```bash
+curl -fsSL https://raw.githubusercontent.com/philipesteiff/skill/main/scripts/install.sh | bash
+```
+
+Optional:
+```bash
+SKILL_VERSION=v0.0.9 curl -fsSL https://raw.githubusercontent.com/philipesteiff/skill/main/scripts/install.sh | bash
+SKILL_INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/philipesteiff/skill/main/scripts/install.sh | bash
+```
+
+Uninstall:
+```bash
+curl -fsSL https://raw.githubusercontent.com/philipesteiff/skill/main/scripts/uninstall.sh | bash
+```
+
 Homebrew:
 ```bash
 brew tap philipesteiff/tap
