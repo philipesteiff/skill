@@ -92,18 +92,18 @@ jobs:
           ASSET_URL="https://github.com/${REPO_SLUG}/releases/download/${TAG}/skill-darwin-${ARCH}.tar.gz"
           mkdir -p "${FORMULA_DIR}"
           cat > "${FORMULA_PATH}" <<RUBY
-class ${FORMULA_CLASS} < Formula
-  desc "CLI for managing skills"
-  homepage "https://github.com/${REPO_SLUG}"
-  url "${ASSET_URL}"
-  sha256 "${CHECKSUM}"
-  version "${VERSION}"
+          class ${FORMULA_CLASS} < Formula
+            desc "CLI for managing skills"
+            homepage "https://github.com/${REPO_SLUG}"
+            url "${ASSET_URL}"
+            sha256 "${CHECKSUM}"
+            version "${VERSION}"
 
-  def install
-    bin.install "${BINARY_NAME}"
-  end
-end
-RUBY
+            def install
+              bin.install "${BINARY_NAME}"
+            end
+          end
+          RUBY
 
       - name: Commit and push formula
         run: |
