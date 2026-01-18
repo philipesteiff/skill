@@ -1,12 +1,14 @@
 use anyhow::{Result, anyhow};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size};
-use ratatui::{Terminal, TerminalOptions, Viewport};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, LineGauge, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Clear, LineGauge, List, ListItem, ListState, Paragraph, Wrap,
+};
+use ratatui::{Terminal, TerminalOptions, Viewport};
 use std::io::{self, Stdout};
 use std::time::Duration;
 
@@ -211,7 +213,6 @@ impl SkillEntry {
                 .unwrap_or(0.0),
         }
     }
-
 }
 
 pub struct TuiReporter {
@@ -483,7 +484,9 @@ impl TuiReporter {
                         self.select_next();
                     }
                     KeyCode::Char('/') => {
-                        self.overlay = Some(Overlay::Search { query: String::new() });
+                        self.overlay = Some(Overlay::Search {
+                            query: String::new(),
+                        });
                     }
                     _ => {}
                 }
@@ -513,7 +516,11 @@ impl TuiReporter {
                 }
                 KeyCode::Enter => {
                     let trimmed = query.trim().to_string();
-                    self.filter = if trimmed.is_empty() { None } else { Some(trimmed) };
+                    self.filter = if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed)
+                    };
                     self.refresh_view();
                     self.overlay = None;
                 }
@@ -534,11 +541,10 @@ impl TuiReporter {
     }
 
     fn installs_running(&self) -> bool {
-        self.skills.iter().any(|skill| {
-            matches!(skill.state, SkillState::Queued | SkillState::Running)
-        })
+        self.skills
+            .iter()
+            .any(|skill| matches!(skill.state, SkillState::Queued | SkillState::Running))
     }
-
 }
 
 impl RenderSnapshot {
@@ -646,11 +652,7 @@ impl RenderSnapshot {
             SkillState::Done => Span::from("Installed").green(),
             SkillState::Queued => Span::from("Queued").dim(),
         };
-        let mut summary = vec![
-            summary_status,
-            " ".into(),
-            summary_name,
-        ];
+        let mut summary = vec![summary_status, " ".into(), summary_name];
         if let Some(version) = summary_version {
             summary.push(" ".into());
             summary.push(version);
@@ -663,9 +665,7 @@ impl RenderSnapshot {
         lines.push(Line::from(""));
 
         let percent = format!("{:.0}%", skill.progress() * 100.0);
-        let mut progress = vec![
-            Span::from(skill.name.clone()).cyan().bold(),
-        ];
+        let mut progress = vec![Span::from(skill.name.clone()).cyan().bold()];
         if let Some(label) = self.version_label(skill) {
             progress.push(" ".into());
             progress.push(Span::from(label).dim());
@@ -1034,7 +1034,14 @@ impl RenderLayout {
         let (header, gauge, list) = if area.height >= 3 {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)].as_ref())
+                .constraints(
+                    [
+                        Constraint::Length(1),
+                        Constraint::Length(1),
+                        Constraint::Min(1),
+                    ]
+                    .as_ref(),
+                )
                 .split(area);
             (chunks[0], Some(chunks[1]), chunks[2])
         } else if area.height == 2 {
@@ -1044,7 +1051,11 @@ impl RenderLayout {
                 .split(area);
             (chunks[0], None, chunks[1])
         } else {
-            (area, None, Rect::new(area.x, area.y.saturating_add(1), area.width, 0))
+            (
+                area,
+                None,
+                Rect::new(area.x, area.y.saturating_add(1), area.width, 0),
+            )
         };
 
         let list_height = list.height;

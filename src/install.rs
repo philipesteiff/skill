@@ -522,11 +522,7 @@ fn namespace_from_repo(repo_url: &str) -> Result<String> {
     Err(anyhow!("unsupported repo URL: {}", repo_url))
 }
 
-fn scan_repo_skills(
-    mirror_path: &Path,
-    commit: &str,
-    base_path: Option<&str>,
-) -> Result<RepoScan> {
+fn scan_repo_skills(mirror_path: &Path, commit: &str, base_path: Option<&str>) -> Result<RepoScan> {
     let files = git::list_files(mirror_path, commit)?;
     let mut seen = HashSet::new();
     let mut skills = Vec::new();
@@ -581,11 +577,7 @@ fn scan_repo_skills(
     })
 }
 
-fn install_target(
-    paths: &Paths,
-    reporter: &mut Reporter,
-    target: &InstallTarget,
-) -> Result<()> {
+fn install_target(paths: &Paths, reporter: &mut Reporter, target: &InstallTarget) -> Result<()> {
     if target.path.trim().is_empty() {
         return Err(anyhow!("missing skill path"));
     }
