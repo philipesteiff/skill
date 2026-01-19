@@ -276,7 +276,9 @@ fn compute_applied(
 }
 
 fn dest_dir(target: &AgentTarget, skill: &SkillKey) -> PathBuf {
-    target.base_dir.join(&skill.namespace).join(&skill.name)
+    target
+        .base_dir
+        .join(format!("{}__{}", skill.namespace, skill.name))
 }
 
 fn build_summary(

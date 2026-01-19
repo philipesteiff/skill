@@ -112,10 +112,7 @@ fn when_applying_non_interactive_should_link_skill() -> Result<()> {
     )?;
     assert!(output.status.success());
 
-    let applied_dir = project_dir
-        .join(".claude/skills")
-        .join("acme")
-        .join("echo-skill");
+    let applied_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
     assert_symlink(&applied_dir)?;
 
@@ -167,32 +164,25 @@ fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
     for (global_rel, project_rel) in targets {
         let global_dest = home_dir
             .join(global_rel)
-            .join("acme")
-            .join("echo-skill")
+            .join("acme__echo-skill")
             .join("SKILL.md");
         assert!(
             global_dest.exists(),
             "missing global {}",
             global_dest.display()
         );
-        assert_symlink(&home_dir.join(global_rel).join("acme").join("echo-skill"))?;
+        assert_symlink(&home_dir.join(global_rel).join("acme__echo-skill"))?;
 
         let project_dest = project_dir
             .join(project_rel)
-            .join("acme")
-            .join("echo-skill")
+            .join("acme__echo-skill")
             .join("SKILL.md");
         assert!(
             project_dest.exists(),
             "missing project {}",
             project_dest.display()
         );
-        assert_symlink(
-            &project_dir
-                .join(project_rel)
-                .join("acme")
-                .join("echo-skill"),
-        )?;
+        assert_symlink(&project_dir.join(project_rel).join("acme__echo-skill"))?;
     }
 
     Ok(())
@@ -228,10 +218,7 @@ fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
     )?;
     assert!(output.status.success());
 
-    let applied_dir = project_dir
-        .join(".claude/skills")
-        .join("acme")
-        .join("echo-skill");
+    let applied_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
     assert_symlink(&applied_dir)?;
 
@@ -313,17 +300,14 @@ fn when_unapplying_all_targets_should_remove_from_all_agents() -> Result<()> {
     ];
 
     for (global_rel, project_rel) in targets {
-        let global_dest = home_dir.join(global_rel).join("acme").join("echo-skill");
+        let global_dest = home_dir.join(global_rel).join("acme__echo-skill");
         assert!(
             !global_dest.exists(),
             "global still exists {}",
             global_dest.display()
         );
 
-        let project_dest = project_dir
-            .join(project_rel)
-            .join("acme")
-            .join("echo-skill");
+        let project_dest = project_dir.join(project_rel).join("acme__echo-skill");
         assert!(
             !project_dest.exists(),
             "project still exists {}",
@@ -367,17 +351,11 @@ fn when_unapplying_global_target_should_remove_global_only() -> Result<()> {
     )?;
     assert!(output.status.success());
 
-    let global_dest = home_dir
-        .join(".claude/skills")
-        .join("acme")
-        .join("echo-skill");
+    let global_dest = home_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(global_dest.join("SKILL.md").exists());
     assert_symlink(&global_dest)?;
 
-    let project_dest = project_dir
-        .join(".claude/skills")
-        .join("acme")
-        .join("echo-skill");
+    let project_dest = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(!project_dest.exists());
 
     let output = support::run_skill_with_env(
@@ -452,14 +430,8 @@ fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<(
     )?;
     assert!(output.status.success());
 
-    let project_a_dest = project_a
-        .join(".claude/skills")
-        .join("acme")
-        .join("echo-skill");
-    let project_b_dest = project_b
-        .join(".claude/skills")
-        .join("acme")
-        .join("echo-skill");
+    let project_a_dest = project_a.join(".claude/skills").join("acme__echo-skill");
+    let project_b_dest = project_b.join(".claude/skills").join("acme__echo-skill");
     assert!(project_a_dest.join("SKILL.md").exists());
     assert!(project_b_dest.join("SKILL.md").exists());
     assert_symlink(&project_a_dest)?;
@@ -517,10 +489,7 @@ fn when_applying_project_target_without_markers_should_still_apply() -> Result<(
     )?;
     assert!(output.status.success());
 
-    let applied_dir = project_dir
-        .join(".claude/skills")
-        .join("acme")
-        .join("echo-skill");
+    let applied_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
     assert_symlink(&applied_dir)?;
 
