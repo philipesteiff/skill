@@ -612,7 +612,11 @@ fn install_target(paths: &Paths, reporter: &mut Reporter, target: &InstallTarget
         ));
     }
 
-    let resolved_version = target.version.clone().or(spec.version.clone());
+    let resolved_version = if target.registry_id.is_some() {
+        target.version.clone().or(spec.version.clone())
+    } else {
+        None
+    };
     reporter.update_active_skill(SkillUpdate {
         name: Some(spec.name.clone()),
         version: resolved_version.clone(),

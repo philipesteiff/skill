@@ -121,7 +121,7 @@ fn when_installing_from_git_repo_with_single_skill_should_install() -> Result<()
         .join("installed")
         .join("octo")
         .join("echo-skill")
-        .join("1.0.0");
+        .join("latest");
     assert!(install_dir.join("SKILL.md").exists());
 
     let lock_path = playground.skills_home.join("lock.json");
@@ -135,7 +135,7 @@ fn when_installing_from_git_repo_with_single_skill_should_install() -> Result<()
 
     assert_eq!(entry.namespace, "octo");
     assert_eq!(entry.requested, "@latest");
-    assert_eq!(entry.resolved_version.as_deref(), Some("1.0.0"));
+    assert!(entry.resolved_version.is_none());
     assert_eq!(entry.resolved_commit, repo.commit);
     assert_eq!(entry.repo_url, repo.url);
     assert_eq!(entry.path, "skills/echo-skill");
@@ -173,13 +173,13 @@ fn when_installing_from_git_repo_with_multiple_skills_should_install_all() -> Re
         .join("installed")
         .join("octo")
         .join("echo-skill")
-        .join("1.0.0");
+        .join("latest");
     let notes_dir = playground
         .skills_home
         .join("installed")
         .join("octo")
         .join("notes-skill")
-        .join("0.2.0");
+        .join("latest");
     assert!(echo_dir.join("SKILL.md").exists());
     assert!(notes_dir.join("SKILL.md").exists());
 
@@ -234,7 +234,7 @@ fn when_installing_from_git_repo_with_subfolder_skill_should_install() -> Result
         .join("installed")
         .join("octo")
         .join("echo-skill")
-        .join("1.0.0");
+        .join("latest");
     assert!(install_dir.join("SKILL.md").exists());
 
     let lock_path = playground.skills_home.join("lock.json");
@@ -298,7 +298,7 @@ fn when_installing_from_git_repo_with_owner_repo_shorthand_should_install() -> R
         .join("installed")
         .join("octo")
         .join("echo-skill")
-        .join("1.0.0");
+        .join("latest");
     assert!(install_dir.join("SKILL.md").exists());
 
     Ok(())
@@ -395,7 +395,7 @@ fn when_installing_from_git_repo_with_existing_skill_should_overwrite() -> Resul
         .join("installed")
         .join("octo")
         .join("echo-skill")
-        .join("1.1.0");
+        .join("latest");
     assert!(install_dir.join("SKILL.md").exists());
 
     let lock_path = playground.skills_home.join("lock.json");
@@ -408,7 +408,7 @@ fn when_installing_from_git_repo_with_existing_skill_should_overwrite() -> Resul
         .collect();
     assert_eq!(entries.len(), 1);
     let entry = entries[0];
-    assert_eq!(entry.resolved_version.as_deref(), Some("1.1.0"));
+    assert!(entry.resolved_version.is_none());
     assert_eq!(entry.resolved_commit, updated.commit);
     assert_eq!(entry.repo_url, updated.url);
 
