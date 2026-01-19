@@ -40,10 +40,21 @@ pub fn fetch_repo(repo_dir: &Path) -> Result<()> {
         [
             "-C",
             repo_dir.to_str().unwrap_or("."),
-            "pull",
-            "--ff-only",
+            "fetch",
             "--depth",
             "1",
+            "--update-shallow",
+            "origin",
+        ],
+        None,
+    )?;
+    run_git(
+        [
+            "-C",
+            repo_dir.to_str().unwrap_or("."),
+            "reset",
+            "--hard",
+            "FETCH_HEAD",
         ],
         None,
     )?;
