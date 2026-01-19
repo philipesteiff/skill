@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 use anyhow::{Context, Result};
 use std::ffi::OsStr;
 use std::fs;
@@ -15,6 +18,8 @@ pub use skills::{TestSkill, skill_by_name};
 use skills::{skill_markdown, test_skills};
 mod git_repo;
 pub use git_repo::GitRepoBuilder;
+mod registry_repo;
+pub use registry_repo::RegistryFixture;
 
 #[derive(Default)]
 struct TestOutput {
@@ -82,7 +87,6 @@ impl Playground {
         let skills_repo_url = format!("file://{}", skills_repo.display());
 
         fs::create_dir_all(registry_repo.join("skills/acme"))?;
-        let published_at = "2024-01-01T00:00:00Z";
         for skill in &skills {
             let skill_json = serde_json::json!({
                 "namespace": "acme",
@@ -95,8 +99,7 @@ impl Playground {
                 "versions": [
                     {
                         "version": skill.version,
-                        "commit": skills_commit,
-                        "published_at": published_at
+                        "commit": skills_commit
                     }
                 ]
             });
@@ -194,6 +197,22 @@ pub fn run_skill_with_env(
         cmd.current_dir(cwd);
     }
     cmd.output().context("run skill")
+}
+
+pub fn run_skill_in_dir(
+    args: &[&str],
+    skills_home: &Path,
+    cwd: &Path,
+) -> Result<std::process::Output> {
+    run_skill(args, skills_home, Some(cwd))
+}
+
+pub fn write_config(skills_home: &Path, registries: Vec<RegistryConfig>) -> Result<()> {
+    fs::create_dir_all(skills_home)?;
+    let config = Config { registries };
+    let config_path = skills_home.join("config.json");
+    fs::write(config_path, serde_json::to_string_pretty(&config)?)?;
+    Ok(())
 }
 
 fn prepare_registry(

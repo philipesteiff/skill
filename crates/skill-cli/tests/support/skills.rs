@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub struct TestSkill {
     pub name: &'static str,
     pub description: &'static str,
