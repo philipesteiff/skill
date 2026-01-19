@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use std::io::IsTerminal;
 use std::time::Duration;
 
 use crate::output::Output;
@@ -17,56 +18,100 @@ pub struct SkillUpdate {
 }
 
 pub struct Reporter {
-    inner: TuiReporter,
+    inner: ReporterInner,
 }
 
 impl Reporter {
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            inner: TuiReporter::new()?,
-        })
+        if std::io::stdout().is_terminal() {
+            Ok(Self {
+                inner: ReporterInner::Tui(Box::new(TuiReporter::new()?)),
+            })
+        } else {
+            Ok(Self {
+                inner: ReporterInner::Plain(PlainReporter::new()),
+            })
+        }
     }
 
     pub fn set_context(&mut self, context: impl Into<String>) -> Result<()> {
-        self.inner.set_context(context.into())
+        let context = context.into();
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.set_context(context),
+            ReporterInner::Plain(inner) => inner.set_context(context),
+        }
     }
 
     pub fn queue_skills(&mut self, skills: Vec<QueuedSkill>) -> Result<()> {
-        self.inner.queue_skills(skills)
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.queue_skills(skills),
+            ReporterInner::Plain(inner) => inner.queue_skills(skills),
+        }
     }
 
     pub fn begin_skill(&mut self, index: usize) -> Result<()> {
-        self.inner.begin_skill(index)
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.begin_skill(index),
+            ReporterInner::Plain(inner) => inner.begin_skill(index),
+        }
     }
 
     pub fn update_active_skill(&mut self, update: SkillUpdate) -> Result<()> {
-        self.inner.update_active_skill(update)
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.update_active_skill(update),
+            ReporterInner::Plain(inner) => inner.update_active_skill(update),
+        }
     }
 
     pub fn finish_skill(&mut self) -> Result<()> {
-        self.inner.finish_skill()
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.finish_skill(),
+            ReporterInner::Plain(inner) => inner.finish_skill(),
+        }
     }
 
     pub fn fail_active_skill(&mut self, error: impl Into<String>) -> Result<()> {
-        self.inner.fail_active_skill(error.into())
+        let error = error.into();
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.fail_active_skill(error),
+            ReporterInner::Plain(inner) => inner.fail_active_skill(error),
+        }
     }
 
     pub fn step(&mut self, message: impl Into<String>) -> Result<()> {
-        self.inner.step(message.into())
+        let message = message.into();
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.step(message),
+            ReporterInner::Plain(inner) => inner.step(message),
+        }
     }
 
     pub fn pick_from_list(&mut self, title: &str, items: &[String]) -> Result<Option<usize>> {
-        self.inner.pick_from_list(title, items)
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.pick_from_list(title, items),
+            ReporterInner::Plain(inner) => inner.pick_from_list(title, items),
+        }
     }
 
     pub fn tick(&mut self) -> Result<()> {
-        self.inner.render()
+        match &mut self.inner {
+            ReporterInner::Tui(inner) => inner.render(),
+            ReporterInner::Plain(inner) => inner.tick(),
+        }
     }
 
     pub fn finish(self, message: impl Into<String>) -> Result<()> {
-        let mut reporter = self.inner;
-        reporter.step(message.into())?;
-        reporter.finish()
+        let message = message.into();
+        match self.inner {
+            ReporterInner::Tui(mut inner) => {
+                inner.step(message)?;
+                inner.finish()
+            }
+            ReporterInner::Plain(mut inner) => {
+                inner.step(message)?;
+                inner.finish()
+            }
+        }
     }
 }
 
@@ -74,6 +119,11 @@ impl Output for Reporter {
     fn line(&mut self, message: impl Into<String>) -> Result<()> {
         self.step(message)
     }
+}
+
+enum ReporterInner {
+    Tui(Box<TuiReporter>),
+    Plain(PlainReporter),
 }
 
 struct TuiReporter {
@@ -311,6 +361,62 @@ impl TuiReporter {
                 *slot = Some(detail);
             }
         }
+    }
+}
+
+struct PlainReporter {
+    context: String,
+}
+
+impl PlainReporter {
+    fn new() -> Self {
+        Self {
+            context: "skill install".to_string(),
+        }
+    }
+
+    fn set_context(&mut self, context: String) -> Result<()> {
+        self.context = context;
+        Ok(())
+    }
+
+    fn queue_skills(&mut self, _skills: Vec<QueuedSkill>) -> Result<()> {
+        Ok(())
+    }
+
+    fn begin_skill(&mut self, _index: usize) -> Result<()> {
+        Ok(())
+    }
+
+    fn update_active_skill(&mut self, _update: SkillUpdate) -> Result<()> {
+        Ok(())
+    }
+
+    fn finish_skill(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn fail_active_skill(&mut self, error: String) -> Result<()> {
+        self.step(format!("Error: {error}"))
+    }
+
+    fn step(&mut self, message: String) -> Result<()> {
+        println!("{message}");
+        Ok(())
+    }
+
+    fn pick_from_list(&mut self, _title: &str, _items: &[String]) -> Result<Option<usize>> {
+        Err(anyhow!(
+            "interactive selection requires a TTY; re-run in a terminal"
+        ))
+    }
+
+    fn tick(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        Ok(())
     }
 }
 

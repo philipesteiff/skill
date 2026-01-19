@@ -57,16 +57,15 @@ fn run_apply_loop(
                     render_targets(frame, area, targets, &selected_targets, &target_state);
                 }
                 Step::Skills => {
-                    render_skills(
-                        frame,
-                        area,
+                    let context = SkillsRenderContext {
                         targets,
                         skills,
                         applied,
-                        &selected_targets,
-                        &selected_skills,
-                        &skill_state,
-                    );
+                        selected_targets: &selected_targets,
+                        selected_skills: &selected_skills,
+                        state: &skill_state,
+                    };
+                    render_skills(frame, area, &context);
                 }
                 Step::Summary => {
                     render_summary(
@@ -313,19 +312,23 @@ fn render_targets(
             .add_modifier(Modifier::BOLD)
             .add_modifier(Modifier::REVERSED),
     );
-    let mut state = state.clone();
+    let mut state = *state;
     frame.render_stateful_widget(list, chunks[2], &mut state);
+}
+
+struct SkillsRenderContext<'a> {
+    targets: &'a [AgentTarget],
+    skills: &'a [ApplySkill],
+    applied: &'a HashMap<(SkillKey, TargetKey), bool>,
+    selected_targets: &'a HashSet<TargetKey>,
+    selected_skills: &'a HashSet<SkillKey>,
+    state: &'a ListState,
 }
 
 fn render_skills(
     frame: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
-    targets: &[AgentTarget],
-    skills: &[ApplySkill],
-    applied: &HashMap<(SkillKey, TargetKey), bool>,
-    selected_targets: &HashSet<TargetKey>,
-    selected_skills: &HashSet<SkillKey>,
-    state: &ListState,
+    context: &SkillsRenderContext<'_>,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -339,7 +342,7 @@ fn render_skills(
         )
         .split(area);
 
-    let target_count = selected_targets.len();
+    let target_count = context.selected_targets.len();
     let header = Paragraph::new(Line::from(vec![
         Span::from("Select skills")
             .style(theme::accent_style())
@@ -362,10 +365,11 @@ fn render_skills(
     .wrap(Wrap { trim: false });
     frame.render_widget(help, chunks[1]);
 
-    let list_items = skills
+    let list_items = context
+        .skills
         .iter()
         .map(|skill| {
-            let checked = if selected_skills.contains(&skill.key) {
+            let checked = if context.selected_skills.contains(&skill.key) {
                 "[x]"
             } else {
                 "[ ]"
@@ -379,7 +383,12 @@ fn render_skills(
                 spans.push(" ".into());
                 spans.push(Span::from("missing source").dim());
             }
-            let mut status = status_tokens(targets, selected_targets, skill, applied);
+            let mut status = status_tokens(
+                context.targets,
+                context.selected_targets,
+                skill,
+                context.applied,
+            );
             if !status.is_empty() {
                 spans.push(" ".into());
                 spans.append(&mut status);
@@ -398,7 +407,7 @@ fn render_skills(
             .add_modifier(Modifier::BOLD)
             .add_modifier(Modifier::REVERSED),
     );
-    let mut state = state.clone();
+    let mut state = *context.state;
     frame.render_stateful_widget(list, chunks[2], &mut state);
 }
 

@@ -237,45 +237,45 @@ pub fn targets_for_agents(agents: &[DetectedAgent]) -> Vec<AgentTarget> {
     let mut targets = Vec::new();
     for agent in agents {
         let detected = agent.detected_project || agent.detected_env;
-        if agent.supports_global {
-            if let Some(base_dir) = agent.global_dir.clone() {
-                let label = agent.id.label();
-                let scope = Scope::Global.label();
-                let short = agent.id.short();
-                let short_scope = Scope::Global.short();
-                targets.push(AgentTarget {
-                    key: TargetKey {
-                        agent: agent.id,
-                        scope: Scope::Global,
-                    },
-                    label: format!("{label} ({scope})"),
-                    short: format!("{short}:{short_scope}"),
-                    base_dir,
-                    detected,
-                    enabled: true,
-                    default_selected: agent.detected_env && !agent.detected_project,
-                });
-            }
+        if agent.supports_global
+            && let Some(base_dir) = agent.global_dir.clone()
+        {
+            let label = agent.id.label();
+            let scope = Scope::Global.label();
+            let short = agent.id.short();
+            let short_scope = Scope::Global.short();
+            targets.push(AgentTarget {
+                key: TargetKey {
+                    agent: agent.id,
+                    scope: Scope::Global,
+                },
+                label: format!("{label} ({scope})"),
+                short: format!("{short}:{short_scope}"),
+                base_dir,
+                detected,
+                enabled: true,
+                default_selected: agent.detected_env && !agent.detected_project,
+            });
         }
-        if agent.supports_project {
-            if let Some(base_dir) = agent.project_dir.clone() {
-                let label = agent.id.label();
-                let scope = Scope::Project.label();
-                let short = agent.id.short();
-                let short_scope = Scope::Project.short();
-                targets.push(AgentTarget {
-                    key: TargetKey {
-                        agent: agent.id,
-                        scope: Scope::Project,
-                    },
-                    label: format!("{label} ({scope})"),
-                    short: format!("{short}:{short_scope}"),
-                    base_dir,
-                    detected,
-                    enabled: true,
-                    default_selected: agent.detected_project,
-                });
-            }
+        if agent.supports_project
+            && let Some(base_dir) = agent.project_dir.clone()
+        {
+            let label = agent.id.label();
+            let scope = Scope::Project.label();
+            let short = agent.id.short();
+            let short_scope = Scope::Project.short();
+            targets.push(AgentTarget {
+                key: TargetKey {
+                    agent: agent.id,
+                    scope: Scope::Project,
+                },
+                label: format!("{label} ({scope})"),
+                short: format!("{short}:{short_scope}"),
+                base_dir,
+                detected,
+                enabled: true,
+                default_selected: agent.detected_project,
+            });
         }
     }
     targets

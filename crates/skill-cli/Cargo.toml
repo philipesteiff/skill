@@ -12,3 +12,7 @@ skill-features = { path = "../skill-features" }
 [[bin]]
 name = "skill"
 path = "src/main.rs"
+
+[dev-dependencies]
+serde_json = "1.0"
+tempfile = "3.10"

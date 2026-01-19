@@ -2184,8 +2184,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "serde_json",
  "skill-core",
  "skill-features",
+ "tempfile",
 ]
 
 [[package]]
