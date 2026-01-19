@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::Args;
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -13,7 +14,7 @@ use self::agents::{AgentTarget, TargetKey, detect_agents, targets_for_agents};
 use skill_core::lockfile;
 use skill_core::output::Output;
 use skill_core::paths::Paths;
-use skill_core::util::{copy_dir_recursive, ensure_dir};
+use skill_core::util::ensure_dir;
 
 #[derive(Args, Clone, Debug)]
 pub struct ApplyArgs {
@@ -415,7 +416,7 @@ fn apply_selection(
                     if let Some(parent) = dest.parent() {
                         ensure_dir(parent)?;
                     }
-                    match copy_dir_recursive(&skill.source_dir, &dest) {
+                    match create_symlink_dir(&skill.source_dir, &dest) {
                         Ok(()) => results.added.push(action),
                         Err(err) => results.failed.push(FailedAction {
                             action,
@@ -428,7 +429,7 @@ fn apply_selection(
                         results.skipped.push(action);
                         continue;
                     }
-                    match std::fs::remove_dir_all(&dest) {
+                    match remove_symlink_or_dir(&dest) {
                         Ok(()) => results.removed.push(action),
                         Err(err) => results.failed.push(FailedAction {
                             action,
@@ -440,6 +441,35 @@ fn apply_selection(
         }
     }
     Ok(results)
+}
+
+fn create_symlink_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(src, dest)?;
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        std::os::windows::fs::symlink_dir(src, dest)?;
+        return Ok(());
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(anyhow::anyhow!(
+            "symlinked apply is not supported on this platform"
+        ))
+    }
+}
+
+fn remove_symlink_or_dir(path: &std::path::Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        fs::remove_file(path)?;
+    } else {
+        fs::remove_dir_all(path)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

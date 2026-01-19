@@ -77,7 +77,7 @@ fn when_applying_without_args_should_error() -> Result<()> {
 }
 
 #[test]
-fn when_applying_non_interactive_should_copy_skill() -> Result<()> {
+fn when_applying_non_interactive_should_link_skill() -> Result<()> {
     let playground = Playground::new()?;
 
     let output = run_skill(&["sync"], &playground.skills_home, None)?;
@@ -116,7 +116,7 @@ fn when_applying_non_interactive_should_copy_skill() -> Result<()> {
 }
 
 #[test]
-fn when_applying_all_targets_should_copy_to_all_agents() -> Result<()> {
+fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
     let playground = Playground::new()?;
     let home_dir = playground.root().join("home");
     fs::create_dir_all(&home_dir)?;
