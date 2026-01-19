@@ -268,7 +268,8 @@ fn compute_applied(
     for skill in skills {
         for target in targets {
             let dest = dest_dir(target, &skill.key);
-            applied.insert((skill.key.clone(), target.key.clone()), dest.exists());
+            let is_applied = symlink_matches(&skill.source_dir, &dest).unwrap_or(false);
+            applied.insert((skill.key.clone(), target.key.clone()), is_applied);
         }
     }
     applied
@@ -402,7 +403,16 @@ fn apply_selection(
             match mode {
                 ActionMode::Apply => {
                     if dest.exists() {
-                        results.skipped.push(action);
+                        let is_managed = symlink_matches(&skill.source_dir, &dest).unwrap_or(false);
+                        if is_managed {
+                            results.skipped.push(action);
+                        } else {
+                            results.failed.push(FailedAction {
+                                action,
+                                reason: "destination exists and is not a managed symlink"
+                                    .to_string(),
+                            });
+                        }
                         continue;
                     }
                     if !skill.source_exists {
@@ -429,8 +439,11 @@ fn apply_selection(
                         results.skipped.push(action);
                         continue;
                     }
-                    match remove_symlink_or_dir(&dest) {
-                        Ok(()) => results.removed.push(action),
+                    match remove_applied(&skill.source_dir, &dest) {
+                        Ok(RemoveOutcome::Removed) => results.removed.push(action),
+                        Ok(RemoveOutcome::Skipped(reason)) => {
+                            results.failed.push(FailedAction { action, reason })
+                        }
                         Err(err) => results.failed.push(FailedAction {
                             action,
                             reason: err.to_string(),
@@ -447,12 +460,12 @@ fn create_symlink_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<(
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(src, dest)?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(windows)]
     {
         std::os::windows::fs::symlink_dir(src, dest)?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -462,14 +475,41 @@ fn create_symlink_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<(
     }
 }
 
-fn remove_symlink_or_dir(path: &std::path::Path) -> Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() {
-        fs::remove_file(path)?;
-    } else {
-        fs::remove_dir_all(path)?;
+enum RemoveOutcome {
+    Removed,
+    Skipped(String),
+}
+
+fn remove_applied(source: &std::path::Path, dest: &std::path::Path) -> Result<RemoveOutcome> {
+    let metadata = fs::symlink_metadata(dest)?;
+    if !metadata.file_type().is_symlink() {
+        return Ok(RemoveOutcome::Skipped("not a managed symlink".to_string()));
     }
-    Ok(())
+    if !symlink_matches(source, dest)? {
+        return Ok(RemoveOutcome::Skipped(
+            "link target does not match installed skill".to_string(),
+        ));
+    }
+    fs::remove_file(dest)?;
+    Ok(RemoveOutcome::Removed)
+}
+
+fn symlink_matches(source: &std::path::Path, dest: &std::path::Path) -> Result<bool> {
+    let metadata = fs::symlink_metadata(dest)?;
+    if !metadata.file_type().is_symlink() {
+        return Ok(false);
+    }
+    let link_target = fs::read_link(dest)?;
+    let resolved_target = if link_target.is_absolute() {
+        fs::canonicalize(&link_target)?
+    } else {
+        let parent = dest
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("missing symlink parent"))?;
+        fs::canonicalize(parent.join(link_target))?
+    };
+    let resolved_source = fs::canonicalize(source)?;
+    Ok(resolved_target == resolved_source)
 }
 
 #[cfg(test)]

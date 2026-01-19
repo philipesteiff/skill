@@ -36,6 +36,12 @@ fn seed_install(paths: &Path, namespace: &str, name: &str, source: &Path) -> Res
     Ok(())
 }
 
+fn assert_symlink(path: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    assert!(metadata.file_type().is_symlink());
+    Ok(())
+}
+
 #[test]
 fn when_applying_with_no_installed_skills_should_report() -> Result<()> {
     let temp = tempfile::tempdir()?;
@@ -111,6 +117,7 @@ fn when_applying_non_interactive_should_link_skill() -> Result<()> {
         .join("acme")
         .join("echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
+    assert_symlink(&applied_dir)?;
 
     Ok(())
 }
@@ -168,6 +175,7 @@ fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
             "missing global {}",
             global_dest.display()
         );
+        assert_symlink(&home_dir.join(global_rel).join("acme").join("echo-skill"))?;
 
         let project_dest = project_dir
             .join(project_rel)
@@ -179,6 +187,12 @@ fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
             "missing project {}",
             project_dest.display()
         );
+        assert_symlink(
+            &project_dir
+                .join(project_rel)
+                .join("acme")
+                .join("echo-skill"),
+        )?;
     }
 
     Ok(())
@@ -219,6 +233,7 @@ fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
         .join("acme")
         .join("echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
+    assert_symlink(&applied_dir)?;
 
     let output = run_skill(
         &[
@@ -357,6 +372,7 @@ fn when_unapplying_global_target_should_remove_global_only() -> Result<()> {
         .join("acme")
         .join("echo-skill");
     assert!(global_dest.join("SKILL.md").exists());
+    assert_symlink(&global_dest)?;
 
     let project_dest = project_dir
         .join(".claude/skills")
@@ -446,6 +462,8 @@ fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<(
         .join("echo-skill");
     assert!(project_a_dest.join("SKILL.md").exists());
     assert!(project_b_dest.join("SKILL.md").exists());
+    assert_symlink(&project_a_dest)?;
+    assert_symlink(&project_b_dest)?;
 
     let output = support::run_skill_with_env(
         &[
@@ -504,6 +522,7 @@ fn when_applying_project_target_without_markers_should_still_apply() -> Result<(
         .join("acme")
         .join("echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
+    assert_symlink(&applied_dir)?;
 
     Ok(())
 }
