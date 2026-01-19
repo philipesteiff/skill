@@ -62,6 +62,7 @@ The goal is to write **clean, idiomatic, well-tested Rust**, with consistent for
 
     * Do not globally set environment variables unless unavoidable.
     * Prefer passing configuration explicitly.
+* Test function names must follow the pattern `when...should...`.
 
 ---
 
