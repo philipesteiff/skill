@@ -1,13 +1,12 @@
 # Project Main Plan
 
 ## Purpose
-Build a `skill` CLI that installs, updates, and publishes Agent Skills stored in GitHub repos. The CLI is GitHub-only, uses a lightweight metadata registry, and pins every install to a commit SHA for reproducibility.
+Build a `skill` CLI that installs and updates Agent Skills stored in GitHub repos. The CLI is GitHub-only, uses a lightweight metadata registry, and pins every install to a commit SHA for reproducibility.
 
 ## Goals
 - KISS UX: `search`, `install`, `upgrade`, `remove`, `list` are the daily commands.
 - GitHub-only distribution with an optional metadata registry repo.
 - Bandwidth-safe operations (cache, fetch only required SHAs, sparse checkout).
-- Transparent publishing via PRs to a registry repo.
 - Works with public and private repos using existing git credentials.
 
 ## Non-goals
@@ -37,8 +36,6 @@ E. Remove a skill: `skill remove aws/skills/aws-lambda` or `skill remove --all`.
 - `skill list`: list installed skills.
 - `skill add-registry <git-url>`: add a registry repo.
 - `skill sync`: update registry index.
-- `skill publish [--registry <git-url>] [--dry-run]`: submit metadata PR.
-- `skill export codex --scope user`: copy skills to `~/.codex/skills`.
 
 Example:
 ```bash
@@ -142,14 +139,6 @@ Use SQLite FTS5 over `name`, `description`, and `tags`. Rebuild `index.sqlite` o
 ### Remove
 - Delete the installed directory and remove the lock entry. Keep cached mirrors unless `skill prune-cache` is added later.
 
-### Publish
-1. Scan repo for `SKILL.md` files.
-2. Validate spec and parse frontmatter (name, description, metadata.version).
-3. Compute commit SHA (HEAD) and repo URL.
-4. Update registry JSON files and regenerate index sources.
-5. Create branch, commit, push, and open a PR via GitHub API.
-6. `--dry-run` prints the diff and exits without pushing.
-
 ## Auth and private repos
 All git operations go through the system `git` binary so SSH agents, credential helpers, and `gh auth` work. If a fetch fails, print a single actionable hint (e.g., "Ensure `git clone <repo>` works in this terminal").
 
@@ -182,11 +171,5 @@ All git operations go through the system `git` binary so SSH agents, credential 
 - `skill upgrade` using registry latest.
 - `skill remove` and lock maintenance.
 
-### Milestone 4: Publish flow
-- Scan local repo for skills.
-- Validate, update registry metadata, PR creation.
-- `--dry-run` diff output.
-
-### Milestone 5: Export + packaging
-- `skill export codex`.
+### Milestone 4: Packaging
 - Release packaging (tarballs, brew formula, install script).

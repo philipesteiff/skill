@@ -1,9 +1,7 @@
 pub mod add_registry;
 pub mod apply;
-pub mod export;
 pub mod install;
 pub mod list;
-pub mod publish;
 pub mod remove;
 pub mod search;
 pub mod sync;

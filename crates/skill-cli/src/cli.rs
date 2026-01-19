@@ -16,7 +16,5 @@ pub enum Commands {
     List(skill_features::list::ListArgs),
     AddRegistry(skill_features::add_registry::AddRegistryArgs),
     Sync(skill_features::sync::SyncArgs),
-    Publish(skill_features::publish::PublishArgs),
-    Export(skill_features::export::ExportArgs),
     Apply(skill_features::apply::ApplyArgs),
 }

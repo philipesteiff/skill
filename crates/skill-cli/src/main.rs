@@ -15,8 +15,6 @@ fn main() -> Result<()> {
         cli::Commands::List(args) => skill_features::list::run(&paths, args)?,
         cli::Commands::AddRegistry(args) => skill_features::add_registry::run(&paths, args)?,
         cli::Commands::Sync(args) => skill_features::sync::run(&paths, args)?,
-        cli::Commands::Publish(args) => skill_features::publish::run(&paths, args)?,
-        cli::Commands::Export(args) => skill_features::export::run(&paths, args)?,
         cli::Commands::Apply(args) => skill_features::apply::run(&paths, args)?,
     }
 

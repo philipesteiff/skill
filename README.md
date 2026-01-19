@@ -1,12 +1,12 @@
 # skill
 
-A GitHub-only CLI for installing, updating, and publishing Agent Skills (`SKILL.md`) with optional registry indexing. Installs are pinned to commit SHAs for reproducibility.
+A GitHub-only CLI for installing, updating, and applying Agent Skills (`SKILL.md`) with optional registry indexing. Installs are pinned to commit SHAs for reproducibility.
 
 ## 10-minute mental model
 Think of the tool as three simple loops:
 1) **Find** skills: a registry repo provides lightweight metadata for fast search.
 2) **Fetch** skills: the CLI resolves a reference to a repo + path + commit, then copies that folder locally.
-3) **Publish** skills: the CLI updates registry metadata via a PR; skill content never leaves its repo.
+3) **Apply** skills: copy installed skills into agent-specific directories (TUI or CLI).
 
 Everything lives in git. There is no central service.
 
@@ -21,7 +21,6 @@ flowchart LR
   SkillRepo --> Mirror[Local git mirror cache]
   Mirror --> Installer[Installer]
   Installer --> SkillsHome[$HOME/.skills/installed]
-  CLI -->|publish| RegistryRepo
 ```
 
 ## Core components (what they do)
@@ -49,11 +48,6 @@ flowchart LR
 1) Sync registries (if configured).
 2) For each `@latest` entry in `lock.json`, resolve the newest commit.
 3) Reinstall if the commit changed.
-
-### Publish
-1) Scan the current repo for `SKILL.md` files.
-2) Validate and read metadata (version/tags/namespace).
-3) Update registry JSON entries and create a PR.
 
 ## Reference formats
 ```text
@@ -128,9 +122,6 @@ skill list
 
 # Apply installed skills to agent directories (TUI)
 skill apply
-
-# Publish metadata PR (requires GitHub token)
-GITHUB_TOKEN=... skill publish --registry https://github.com/your-org/skills-registry.git
 ```
 
 `skills.toml` format:
@@ -143,7 +134,6 @@ notes = { ref = "owner/repo/notes-skill", registry = "https://github.com/your-or
 ## Configuration
 - Skills are stored in `$HOME/.skills` by default.
 - Override the base path with `SKILLS_HOME`.
-- Publishing uses `GITHUB_TOKEN` (or `GH_TOKEN`).
 
 ## Playground (offline, realistic testing)
 ```bash
