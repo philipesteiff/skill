@@ -7,13 +7,143 @@ use crate::config::{Config, RegistryConfig};
 use crate::git;
 use crate::lockfile::{self, LockedSkill};
 use crate::manifest;
-use crate::output::Output;
 use crate::paths::Paths;
 use crate::progress::{QueuedSkill, Reporter, SkillUpdate};
 use crate::refs::{self, Selector};
 use crate::registry;
 use crate::skills;
-use crate::util::{copy_dir_recursive, ensure_dir, is_hexish, remove_dir_if_exists, short_sha};
+use crate::util::{copy_dir_recursive, is_hexish, remove_dir_if_exists, short_sha};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpgradeOutcome {
+    NoInstalled,
+    UpToDate,
+    Updated(usize),
+}
+
+pub struct Installer<'a> {
+    paths: &'a Paths,
+    config: &'a Config,
+}
+
+impl<'a> Installer<'a> {
+    pub fn new(paths: &'a Paths, config: &'a Config) -> Self {
+        Self { paths, config }
+    }
+
+    pub fn install_reference(
+        &self,
+        reference: &str,
+        pick: bool,
+        registry: Option<&str>,
+        reporter: &mut Reporter,
+    ) -> Result<()> {
+        install_reference_with_reporter(
+            self.paths,
+            self.config,
+            reference,
+            pick,
+            registry,
+            reporter,
+        )
+    }
+
+    pub fn install_manifest(
+        &self,
+        manifest_path: &Path,
+        pick: bool,
+        registry: Option<&str>,
+        reporter: &mut Reporter,
+    ) -> Result<()> {
+        reporter.step(format!("Loading {}", manifest_path.display()))?;
+        let dependencies = manifest::load_dependencies(manifest_path)?;
+
+        for dependency in dependencies {
+            reporter.step(format!(
+                "Installing dependency {} ({})",
+                dependency.name, dependency.reference
+            ))?;
+            let dependency_registry = dependency.registry.as_deref().or(registry);
+            if let Err(err) = install_reference_with_reporter(
+                self.paths,
+                self.config,
+                &dependency.reference,
+                pick,
+                dependency_registry,
+                reporter,
+            ) {
+                return Err(anyhow!(
+                    "failed to install dependency {}: {}",
+                    dependency.name,
+                    err
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn upgrade_latest(&self, reporter: &mut Reporter) -> Result<UpgradeOutcome> {
+        let lock = lockfile::load(self.paths)?;
+
+        if lock.skills.is_empty() {
+            return Ok(UpgradeOutcome::NoInstalled);
+        }
+
+        for registry in &self.config.registries {
+            registry::sync_registry(self.paths, registry, reporter)?;
+        }
+
+        let mut targets = Vec::new();
+        for entry in lock.skills {
+            if entry.requested != "@latest" {
+                continue;
+            }
+            if let Some(registry_id) = &entry.registry_id {
+                let registry = self
+                    .config
+                    .registries
+                    .iter()
+                    .find(|reg| &reg.id == registry_id)
+                    .ok_or_else(|| anyhow!("missing registry: {}", registry_id))?;
+                let target = resolve_latest_from_registry(
+                    self.paths,
+                    registry,
+                    &entry.namespace,
+                    &entry.name,
+                    &entry.requested,
+                )?;
+                if target.commit == entry.resolved_commit {
+                    continue;
+                }
+                targets.push(target);
+            } else {
+                let commit = git::ls_remote_head(&entry.repo_url)?;
+                if commit == entry.resolved_commit {
+                    continue;
+                }
+                targets.push(InstallTarget {
+                    namespace: entry.namespace.clone(),
+                    expected_name: Some(entry.name.clone()),
+                    repo_url: entry.repo_url.clone(),
+                    path: entry.path.clone(),
+                    commit,
+                    version: entry.resolved_version.clone(),
+                    requested: entry.requested.clone(),
+                    registry_id: None,
+                });
+            }
+        }
+
+        if targets.is_empty() {
+            return Ok(UpgradeOutcome::UpToDate);
+        }
+
+        let updated = targets.len();
+        install_targets(self.paths, reporter, targets)?;
+        Ok(UpgradeOutcome::Updated(updated))
+    }
+}
 
 #[derive(Debug, Clone)]
 struct InstallTarget {
@@ -88,58 +218,6 @@ fn fallback_skill_name(path: &str) -> String {
         .to_string()
 }
 
-pub fn install_reference(
-    paths: &Paths,
-    config: &Config,
-    reference: &str,
-    pick: bool,
-    registry: Option<&str>,
-) -> Result<()> {
-    let mut reporter = Reporter::new()?;
-    reporter.set_context(format!("skill install {reference}"))?;
-    install_reference_with_reporter(paths, config, reference, pick, registry, &mut reporter)?;
-    reporter.finish("Done")?;
-    Ok(())
-}
-
-pub fn install_manifest(
-    paths: &Paths,
-    config: &Config,
-    manifest_path: &Path,
-    pick: bool,
-    registry: Option<&str>,
-) -> Result<()> {
-    let mut reporter = Reporter::new()?;
-    reporter.set_context("skill install".to_string())?;
-    reporter.step(format!("Loading {}", manifest_path.display()))?;
-    let dependencies = manifest::load_dependencies(manifest_path)?;
-
-    for dependency in dependencies {
-        reporter.step(format!(
-            "Installing dependency {} ({})",
-            dependency.name, dependency.reference
-        ))?;
-        let dependency_registry = dependency.registry.as_deref().or(registry);
-        if let Err(err) = install_reference_with_reporter(
-            paths,
-            config,
-            &dependency.reference,
-            pick,
-            dependency_registry,
-            &mut reporter,
-        ) {
-            return Err(anyhow!(
-                "failed to install dependency {}: {}",
-                dependency.name,
-                err
-            ));
-        }
-    }
-
-    reporter.finish("Installed skills from skills.toml")?;
-    Ok(())
-}
-
 fn install_reference_with_reporter(
     paths: &Paths,
     config: &Config,
@@ -190,129 +268,6 @@ fn install_reference_with_reporter(
     let targets = resolve_repo_targets(&mut ctx, &repo_url, path_opt, pick, namespace)?;
     install_targets(paths, ctx.reporter, targets)?;
 
-    Ok(())
-}
-
-pub fn upgrade_latest(paths: &Paths, config: &Config) -> Result<()> {
-    let lock = lockfile::load(paths)?;
-    let mut reporter = Reporter::new()?;
-    reporter.set_context("skill upgrade")?;
-
-    if lock.skills.is_empty() {
-        reporter.finish("No installed skills")?;
-        return Ok(());
-    }
-
-    for registry in &config.registries {
-        registry::sync_registry(paths, registry, &mut reporter)?;
-    }
-
-    let mut targets = Vec::new();
-    for entry in lock.skills {
-        if entry.requested != "@latest" {
-            continue;
-        }
-        if let Some(registry_id) = &entry.registry_id {
-            let registry = config
-                .registries
-                .iter()
-                .find(|reg| &reg.id == registry_id)
-                .ok_or_else(|| anyhow!("missing registry: {}", registry_id))?;
-            let target = resolve_latest_from_registry(
-                paths,
-                registry,
-                &entry.namespace,
-                &entry.name,
-                &entry.requested,
-            )?;
-            if target.commit == entry.resolved_commit {
-                continue;
-            }
-            targets.push(target);
-        } else {
-            let commit = git::ls_remote_head(&entry.repo_url)?;
-            if commit == entry.resolved_commit {
-                continue;
-            }
-            targets.push(InstallTarget {
-                namespace: entry.namespace.clone(),
-                expected_name: Some(entry.name.clone()),
-                repo_url: entry.repo_url.clone(),
-                path: entry.path.clone(),
-                commit,
-                version: entry.resolved_version.clone(),
-                requested: entry.requested.clone(),
-                registry_id: None,
-            });
-        }
-    }
-
-    if targets.is_empty() {
-        reporter.finish("All @latest skills are up to date")?;
-        return Ok(());
-    }
-
-    let updated = targets.len();
-    install_targets(paths, &mut reporter, targets)?;
-    reporter.finish(format!("Updated {updated} skill(s)"))?;
-    Ok(())
-}
-
-pub fn remove_skill(paths: &Paths, reference: &str, output: &mut impl Output) -> Result<()> {
-    let parsed = refs::parse_reference(reference);
-    let segments = refs::split_segments(&parsed.base);
-    if segments.len() < 2 {
-        return Err(anyhow!("invalid reference: {}", reference));
-    }
-    let namespace = segments.first().cloned().unwrap_or_default();
-    let name = segments.last().cloned().unwrap_or_default();
-
-    let mut lock = lockfile::load(paths)?;
-    let entry = lockfile::remove(&mut lock, &namespace, &name)
-        .ok_or_else(|| anyhow!("skill not installed: {}/{}", namespace, name))?;
-
-    remove_dir_if_exists(Path::new(&entry.install_dir))?;
-    lockfile::save(paths, &lock)?;
-    output.line(format!("Removed {namespace}/{name}"))?;
-    Ok(())
-}
-
-pub fn remove_all_skills(paths: &Paths, output: &mut impl Output) -> Result<()> {
-    let mut lock = lockfile::load(paths)?;
-    if lock.skills.is_empty() {
-        remove_dir_if_exists(&paths.installed_dir())?;
-        ensure_dir(&paths.installed_dir())?;
-        output.line("No installed skills")?;
-        return Ok(());
-    }
-
-    let count = lock.skills.len();
-    for entry in &lock.skills {
-        remove_dir_if_exists(Path::new(&entry.install_dir))?;
-    }
-    lock.skills.clear();
-    lockfile::save(paths, &lock)?;
-    remove_dir_if_exists(&paths.installed_dir())?;
-    ensure_dir(&paths.installed_dir())?;
-    output.line(format!("Removed {count} skill(s)"))?;
-    Ok(())
-}
-
-pub fn list_installed(paths: &Paths, output: &mut impl Output) -> Result<()> {
-    let lock = lockfile::load(paths)?;
-    if lock.skills.is_empty() {
-        output.line("No installed skills")?;
-        return Ok(());
-    }
-
-    for entry in lock.skills {
-        let version = entry.resolved_version.as_deref().unwrap_or("latest");
-        let commit = short_sha(&entry.resolved_commit);
-        output.line(format!(
-            "{}/{} {} ({})",
-            entry.namespace, entry.name, version, commit
-        ))?;
-    }
     Ok(())
 }
 

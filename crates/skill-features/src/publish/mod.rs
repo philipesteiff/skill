@@ -1,20 +1,47 @@
 use anyhow::{Result, anyhow};
 use chrono::Utc;
+use clap::Args;
 use reqwest::blocking::Client;
 use serde_json::json;
 use std::env;
 use std::path::Path;
 use walkdir::WalkDir;
 
-use crate::config::RegistryConfig;
-use crate::git;
-use crate::output::Output;
-use crate::paths::Paths;
-use crate::registry::{self, RegistryLatest, RegistrySkillFile, RegistryVersion};
-use crate::skills::SkillSpec;
-use crate::util::{parse_github_slug, short_sha};
+use skill_core::config::{self, RegistryConfig};
+use skill_core::git;
+use skill_core::output::Output;
+use skill_core::paths::Paths;
+use skill_core::registry::{self, RegistryLatest, RegistrySkillFile, RegistryVersion};
+use skill_core::skills::SkillSpec;
+use skill_core::util::{parse_github_slug, short_sha};
 
-pub fn publish(
+#[derive(Args, Clone, Debug)]
+pub struct PublishArgs {
+    #[arg(long)]
+    pub registry: Option<String>,
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+pub fn run(paths: &Paths, args: PublishArgs) -> Result<()> {
+    paths.ensure_base_dirs()?;
+    let config = config::load(paths)?;
+    let registry = config::select_single_registry(&config, args.registry.as_deref())?;
+    let label = if args.dry_run {
+        "skill publish --dry-run".to_string()
+    } else {
+        "skill publish".to_string()
+    };
+
+    let mut ui = skill_core::ui::log::LogUi::new(label)?;
+    let result = publish(paths, &registry, args.dry_run, &mut ui);
+    let finish = ui.finish();
+    result?;
+    finish?;
+    Ok(())
+}
+
+fn publish(
     paths: &Paths,
     registry: &RegistryConfig,
     dry_run: bool,
@@ -34,7 +61,7 @@ pub fn publish(
     let repo_root = git::repo_root(&cwd)?;
     let head = git::repo_head(&repo_root)?;
     let origin_url = git::remote_url(&repo_root)?;
-    let repo_url = crate::util::normalize_github_url(&origin_url).unwrap_or(origin_url);
+    let repo_url = skill_core::util::normalize_github_url(&origin_url).unwrap_or(origin_url);
 
     let default_namespace = parse_github_slug(&repo_url)
         .map(|(owner, _)| owner)
@@ -147,7 +174,7 @@ fn find_skills(repo_root: &Path) -> Result<Vec<SkillSpec>> {
             .path()
             .parent()
             .ok_or_else(|| anyhow!("invalid SKILL.md path"))?;
-        let spec = crate::skills::read_skill_spec(dir)?;
+        let spec = skill_core::skills::read_skill_spec(dir)?;
         skills.push(spec);
     }
 

@@ -1,0 +1,14 @@
+[package]
+name = "skill-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+skill-core = { path = "../skill-core" }
+skill-features = { path = "../skill-features" }
+
+[[bin]]
+name = "skill"
+path = "src/main.rs"

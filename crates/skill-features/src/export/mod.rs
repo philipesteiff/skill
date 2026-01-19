@@ -1,13 +1,37 @@
 use anyhow::{Result, anyhow};
+use clap::Args;
 use std::env;
 use std::path::PathBuf;
 
-use crate::lockfile;
-use crate::output::Output;
-use crate::paths::Paths;
-use crate::util::{copy_dir_recursive, ensure_dir, remove_dir_if_exists};
+use skill_core::lockfile;
+use skill_core::output::Output;
+use skill_core::paths::Paths;
+use skill_core::util::{copy_dir_recursive, ensure_dir, remove_dir_if_exists};
 
-pub fn export_skills(
+#[derive(Args, Clone, Debug)]
+pub struct ExportArgs {
+    pub target: String,
+    #[arg(long)]
+    pub scope: Option<String>,
+}
+
+pub fn run(paths: &Paths, args: ExportArgs) -> Result<()> {
+    paths.ensure_base_dirs()?;
+    let ExportArgs { target, scope } = args;
+    let label = scope
+        .as_deref()
+        .map(|scope| format!("skill export {target} --scope {scope}"))
+        .unwrap_or_else(|| format!("skill export {target}"));
+
+    let mut ui = skill_core::ui::log::LogUi::new(label)?;
+    let result = export_skills(paths, &target, scope.as_deref(), &mut ui);
+    let finish = ui.finish();
+    result?;
+    finish?;
+    Ok(())
+}
+
+fn export_skills(
     paths: &Paths,
     target: &str,
     scope: Option<&str>,
@@ -15,7 +39,7 @@ pub fn export_skills(
 ) -> Result<()> {
     match target {
         "codex" => export_codex(paths, scope.unwrap_or("user"), output),
-        _ => Err(anyhow!("unsupported export target: {}", target)),
+        _ => Err(anyhow!("unsupported export target: {target}")),
     }
 }
 
@@ -26,7 +50,7 @@ fn export_codex(paths: &Paths, scope: &str, output: &mut impl Output) -> Result<
             PathBuf::from(home).join(".codex").join("skills")
         }
         "repo" => env::current_dir()?.join(".codex").join("skills"),
-        _ => return Err(anyhow!("invalid scope: {} (use user or repo)", scope)),
+        _ => return Err(anyhow!("invalid scope: {scope} (use user or repo)")),
     };
 
     ensure_dir(&dest_base)?;
@@ -44,6 +68,9 @@ fn export_codex(paths: &Paths, scope: &str, output: &mut impl Output) -> Result<
         copy_dir_recursive(&src, &dest)?;
     }
 
-    output.line(format!("Exported skills to {}", dest_base.display()))?;
+    output.line(format!(
+        "Exported skills to {dest}",
+        dest = dest_base.display()
+    ))?;
     Ok(())
 }

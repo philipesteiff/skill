@@ -1,17 +1,33 @@
 use anyhow::Result;
+use clap::Args;
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
-use crate::agents::{AgentTarget, TargetKey, detect_agents, targets_for_agents};
-use crate::lockfile;
-use crate::output::Output;
-use crate::paths::Paths;
-use crate::ui;
-use crate::util::{copy_dir_recursive, ensure_dir};
+mod agents;
+mod ui;
+
+use self::agents::{AgentTarget, TargetKey, detect_agents, targets_for_agents};
+use skill_core::lockfile;
+use skill_core::output::Output;
+use skill_core::paths::Paths;
+use skill_core::util::{copy_dir_recursive, ensure_dir};
+
+#[derive(Args, Clone, Debug)]
+pub struct ApplyArgs {}
+
+pub fn run(paths: &Paths, _args: ApplyArgs) -> Result<()> {
+    paths.ensure_base_dirs()?;
+    let mut ui = skill_core::ui::log::LogUi::new("skill apply")?;
+    let result = apply_installed(paths, &mut ui);
+    let finish = ui.finish();
+    result?;
+    finish?;
+    Ok(())
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct SkillKey {
+struct SkillKey {
     pub namespace: String,
     pub name: String,
 }
@@ -25,19 +41,19 @@ impl SkillKey {
 }
 
 #[derive(Clone, Debug)]
-pub struct ApplySkill {
+struct ApplySkill {
     pub key: SkillKey,
     pub source_dir: PathBuf,
     pub source_exists: bool,
 }
 
 #[derive(Clone, Debug)]
-pub struct ApplySelection {
+struct ApplySelection {
     pub targets: Vec<TargetKey>,
     pub skills: Vec<SkillKey>,
 }
 
-pub fn apply_installed(paths: &Paths, output: &mut impl Output) -> Result<()> {
+fn apply_installed(paths: &Paths, output: &mut impl Output) -> Result<()> {
     let lockfile = lockfile::load(paths)?;
     if lockfile.skills.is_empty() {
         output.line("No installed skills to apply")?;
@@ -71,7 +87,7 @@ pub fn apply_installed(paths: &Paths, output: &mut impl Output) -> Result<()> {
         .collect::<Vec<_>>();
 
     let applied = compute_applied(&skills, &targets);
-    let selection = ui::apply::run_apply_ui(&targets, &skills, &applied)?;
+    let selection = ui::run_apply_ui(&targets, &skills, &applied)?;
     let Some(selection) = selection else {
         output.line("Canceled apply")?;
         return Ok(());
@@ -243,8 +259,8 @@ fn apply_selection(
 
 #[cfg(test)]
 mod tests {
+    use super::agents::{AgentId, Scope};
     use super::*;
-    use crate::agents::{AgentId, Scope};
 
     #[test]
     fn computes_applied_status() {

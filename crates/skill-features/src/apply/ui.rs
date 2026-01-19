@@ -7,10 +7,10 @@ use ratatui::widgets::{List, ListItem, ListState, Paragraph, Wrap};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use crate::agents::{AgentTarget, TargetKey};
-use crate::apply::{ApplySelection, ApplySkill, SkillKey};
-use crate::ui::terminal::{UiTerminal, safe_area, setup_inline_terminal, teardown_terminal};
-use crate::ui::theme;
+use super::agents::{AgentTarget, TargetKey};
+use super::{ApplySelection, ApplySkill, SkillKey};
+use skill_core::ui::terminal::{UiTerminal, safe_area, setup_inline_terminal, teardown_terminal};
+use skill_core::ui::theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
@@ -19,7 +19,7 @@ enum Step {
     Summary,
 }
 
-pub fn run_apply_ui(
+pub(super) fn run_apply_ui(
     targets: &[AgentTarget],
     skills: &[ApplySkill],
     applied: &HashMap<(SkillKey, TargetKey), bool>,
