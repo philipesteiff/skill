@@ -3,27 +3,75 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{List, ListItem, Paragraph, Wrap};
+use std::io::IsTerminal;
 
 use crate::output::Output;
 use crate::ui::terminal::{UiTerminal, safe_area, setup_inline_terminal, teardown_terminal};
 use crate::ui::theme;
 
 pub struct LogUi {
+    inner: LogUiInner,
+}
+
+impl LogUi {
+    pub fn new(context: impl Into<String>) -> Result<Self> {
+        let context = context.into();
+        if std::io::stdout().is_terminal() {
+            Ok(Self {
+                inner: LogUiInner::Tui(TuiLogUi::new(context)?),
+            })
+        } else {
+            Ok(Self {
+                inner: LogUiInner::Plain(PlainLogUi::new(context)),
+            })
+        }
+    }
+
+    pub fn render(&mut self) -> Result<()> {
+        match &mut self.inner {
+            LogUiInner::Tui(inner) => inner.render(),
+            LogUiInner::Plain(inner) => inner.render(),
+        }
+    }
+
+    pub fn finish(mut self) -> Result<()> {
+        match &mut self.inner {
+            LogUiInner::Tui(inner) => inner.finish(),
+            LogUiInner::Plain(inner) => inner.finish(),
+        }
+    }
+}
+
+impl Output for LogUi {
+    fn line(&mut self, message: impl Into<String>) -> Result<()> {
+        match &mut self.inner {
+            LogUiInner::Tui(inner) => inner.line(message),
+            LogUiInner::Plain(inner) => inner.line(message),
+        }
+    }
+}
+
+enum LogUiInner {
+    Tui(TuiLogUi),
+    Plain(PlainLogUi),
+}
+
+struct TuiLogUi {
     terminal: UiTerminal,
     context: String,
     lines: Vec<String>,
 }
 
-impl LogUi {
-    pub fn new(context: impl Into<String>) -> Result<Self> {
+impl TuiLogUi {
+    fn new(context: String) -> Result<Self> {
         Ok(Self {
             terminal: setup_inline_terminal()?,
-            context: context.into(),
+            context,
             lines: Vec::new(),
         })
     }
 
-    pub fn render(&mut self) -> Result<()> {
+    fn render(&mut self) -> Result<()> {
         let context = self.context.clone();
         let lines = self.lines.clone();
         self.terminal.draw(|frame| {
@@ -33,16 +81,38 @@ impl LogUi {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<()> {
+    fn finish(&mut self) -> Result<()> {
         self.render()?;
         teardown_terminal(&mut self.terminal)
     }
-}
 
-impl Output for LogUi {
     fn line(&mut self, message: impl Into<String>) -> Result<()> {
         self.lines.push(message.into());
         self.render()
+    }
+}
+
+struct PlainLogUi {
+    context: String,
+}
+
+impl PlainLogUi {
+    fn new(context: String) -> Self {
+        Self { context }
+    }
+
+    fn render(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn line(&mut self, message: impl Into<String>) -> Result<()> {
+        let message = message.into();
+        println!("{}: {}", self.context, message);
+        Ok(())
     }
 }
 
