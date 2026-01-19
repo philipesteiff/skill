@@ -2,6 +2,7 @@ use anyhow::{Result, anyhow};
 use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum AgentId {
@@ -11,6 +12,7 @@ pub enum AgentId {
     Copilot,
     Goose,
     Opencode,
+    Codex,
 }
 
 impl AgentId {
@@ -22,6 +24,7 @@ impl AgentId {
             AgentId::Copilot => "Copilot",
             AgentId::Goose => "Goose",
             AgentId::Opencode => "OpenCode",
+            AgentId::Codex => "Codex",
         }
     }
 
@@ -33,6 +36,7 @@ impl AgentId {
             AgentId::Copilot => "cp",
             AgentId::Goose => "gs",
             AgentId::Opencode => "oc",
+            AgentId::Codex => "cdx",
         }
     }
 }
@@ -70,6 +74,49 @@ impl TargetKey {
         let agent = self.agent.label();
         let scope = self.scope.label();
         format!("{agent} {scope}")
+    }
+}
+
+impl FromStr for TargetKey {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        let parts: Vec<&str> = value.split(':').collect();
+        if parts.len() != 2 {
+            return Err(anyhow!("invalid target: {value}"));
+        }
+        let agent = AgentId::from_str(parts[0])?;
+        let scope = Scope::from_str(parts[1])?;
+        Ok(TargetKey { agent, scope })
+    }
+}
+
+impl FromStr for AgentId {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        match value {
+            "cc" | "claude" | "claude-code" => Ok(AgentId::ClaudeCode),
+            "cu" | "cursor" => Ok(AgentId::Cursor),
+            "vs" | "vscode" | "code" => Ok(AgentId::Vscode),
+            "cp" | "copilot" => Ok(AgentId::Copilot),
+            "gs" | "goose" => Ok(AgentId::Goose),
+            "oc" | "opencode" => Ok(AgentId::Opencode),
+            "cdx" | "codex" => Ok(AgentId::Codex),
+            _ => Err(anyhow!("unknown agent: {value}")),
+        }
+    }
+}
+
+impl FromStr for Scope {
+    type Err = anyhow::Error;
+
+    fn from_str(value: &str) -> Result<Self> {
+        match value {
+            "g" | "global" => Ok(Scope::Global),
+            "p" | "project" => Ok(Scope::Project),
+            _ => Err(anyhow!("unknown scope: {value}")),
+        }
     }
 }
 
@@ -189,6 +236,16 @@ const AGENTS: &[AgentDef] = &[
         supports_project: true,
         project_markers: &[".opencode", ".opencode/skill"],
         env_keys: &["OPENCODE_HOME"],
+        term_substrings: &[],
+    },
+    AgentDef {
+        id: AgentId::Codex,
+        global_rel: ".codex/skills",
+        project_rel: ".codex/skills",
+        supports_global: true,
+        supports_project: true,
+        project_markers: &[".codex", ".codex/skills"],
+        env_keys: &["CODEX_HOME"],
         term_substrings: &[],
     },
 ];

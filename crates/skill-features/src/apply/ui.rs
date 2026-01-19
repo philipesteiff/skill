@@ -249,7 +249,7 @@ fn render_targets(
         .constraints(
             [
                 Constraint::Length(1),
-                Constraint::Length(2),
+                Constraint::Length(3),
                 Constraint::Min(1),
             ]
             .as_ref(),
@@ -360,6 +360,7 @@ fn render_skills(
         Line::from(
             Span::from("Skills already applied show a check for each selected target.").dim(),
         ),
+        Line::from(Span::from("Unselected skills will be removed from selected targets.").dim()),
     ])
     .alignment(Alignment::Left)
     .wrap(Wrap { trim: false });
