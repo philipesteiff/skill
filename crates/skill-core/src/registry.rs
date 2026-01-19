@@ -34,7 +34,6 @@ pub struct RegistryLatest {
 pub struct RegistryVersion {
     pub version: String,
     pub commit: String,
-    pub published_at: String,
 }
 
 #[derive(Debug, Clone)]

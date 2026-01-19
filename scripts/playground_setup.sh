@@ -61,7 +61,6 @@ git add .
 git commit -m "Add sample skills" -q
 
 SKILLS_COMMIT="$(git rev-parse HEAD)"
-PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 mkdir -p "$REGISTRY_REPO/skills/acme"
 
@@ -75,7 +74,7 @@ cat <<JSON > "$REGISTRY_REPO/skills/acme/echo-skill.json"
   "tags": ["cli", "example"],
   "latest": { "version": "1.0.0", "commit": "$SKILLS_COMMIT" },
   "versions": [
-    { "version": "1.0.0", "commit": "$SKILLS_COMMIT", "published_at": "$PUBLISHED_AT" }
+    { "version": "1.0.0", "commit": "$SKILLS_COMMIT" }
   ]
 }
 JSON
@@ -90,7 +89,7 @@ cat <<JSON > "$REGISTRY_REPO/skills/acme/notes-skill.json"
   "tags": ["notes", "example"],
   "latest": { "version": "0.2.0", "commit": "$SKILLS_COMMIT" },
   "versions": [
-    { "version": "0.2.0", "commit": "$SKILLS_COMMIT", "published_at": "$PUBLISHED_AT" }
+    { "version": "0.2.0", "commit": "$SKILLS_COMMIT" }
   ]
 }
 JSON

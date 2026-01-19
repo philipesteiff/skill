@@ -112,7 +112,7 @@ Example:
   "tags": ["aws", "lambda"],
   "latest": { "version": "1.2.0", "commit": "9f3c..." },
   "versions": [
-    { "version": "1.2.0", "commit": "9f3c...", "published_at": "2025-01-01T00:00:00Z" }
+    { "version": "1.2.0", "commit": "9f3c..." }
   ]
 }
 ```
