@@ -73,6 +73,7 @@ fn run_apply_loop(
                         area,
                         targets,
                         skills,
+                        applied,
                         &selected_targets,
                         &selected_skills,
                     );
@@ -343,12 +344,33 @@ fn render_skills(
         .split(area);
 
     let target_count = context.selected_targets.len();
+    let remove_count = context
+        .skills
+        .iter()
+        .filter(|skill| !context.selected_skills.contains(&skill.key))
+        .filter(|skill| {
+            context.selected_targets.iter().any(|target| {
+                context
+                    .applied
+                    .get(&(skill.key.clone(), target.clone()))
+                    .copied()
+                    .unwrap_or(false)
+            })
+        })
+        .count();
+    let remove_label = if remove_count == 1 {
+        "1 will be removed".to_string()
+    } else {
+        format!("{remove_count} will be removed")
+    };
     let header = Paragraph::new(Line::from(vec![
         Span::from("Select skills")
             .style(theme::accent_style())
             .bold(),
         "  ".into(),
         Span::from(format!("Targets: {target_count}")).dim(),
+        "  ".into(),
+        Span::from(remove_label).dim(),
     ]))
     .alignment(Alignment::Left);
     frame.render_widget(header, chunks[0]);
@@ -449,6 +471,7 @@ fn render_summary(
     area: ratatui::layout::Rect,
     targets: &[AgentTarget],
     skills: &[ApplySkill],
+    applied: &HashMap<(SkillKey, TargetKey), bool>,
     selected_targets: &HashSet<TargetKey>,
     selected_skills: &HashSet<SkillKey>,
 ) {
@@ -458,7 +481,7 @@ fn render_summary(
         .split(area);
 
     let header = Paragraph::new(Line::from(vec![
-        Span::from("Confirm apply")
+        Span::from("Confirm changes")
             .style(theme::accent_style())
             .bold(),
         "  ".into(),
@@ -470,6 +493,22 @@ fn render_summary(
     let skill_labels = skills
         .iter()
         .filter(|skill| selected_skills.contains(&skill.key))
+        .map(|skill| {
+            let label = skill.key.label();
+            format!("- {label}")
+        })
+        .collect::<Vec<_>>();
+    let remove_labels = skills
+        .iter()
+        .filter(|skill| !selected_skills.contains(&skill.key))
+        .filter(|skill| {
+            selected_targets.iter().any(|target| {
+                applied
+                    .get(&(skill.key.clone(), target.clone()))
+                    .copied()
+                    .unwrap_or(false)
+            })
+        })
         .map(|skill| {
             let label = skill.key.label();
             format!("- {label}")
@@ -492,6 +531,16 @@ fn render_summary(
         lines.push(Line::from("No skills selected".dim()));
     } else {
         lines.extend(skill_labels.into_iter().map(Line::from));
+    }
+    lines.push(Line::from(
+        Span::from("Will remove:")
+            .style(theme::accent_style())
+            .bold(),
+    ));
+    if remove_labels.is_empty() {
+        lines.push(Line::from("None".dim()));
+    } else {
+        lines.extend(remove_labels.into_iter().map(Line::from));
     }
     lines.push(Line::from(
         Span::from("Targets:").style(theme::accent_style()).bold(),

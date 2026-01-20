@@ -113,7 +113,22 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
         output.line("Canceled apply")?;
         return Ok(());
     };
-    if selection.targets.is_empty() || selection.skills.is_empty() {
+    let intent = if args.unapply {
+        ApplyIntent::UnapplyOnly
+    } else if args.no_tui
+        || !args.targets.is_empty()
+        || !args.skills.is_empty()
+        || args.all_targets
+        || args.all_skills
+    {
+        ApplyIntent::ApplyOnly
+    } else {
+        ApplyIntent::DesiredState
+    };
+    if selection.targets.is_empty()
+        || (selection.skills.is_empty()
+            && matches!(intent, ApplyIntent::ApplyOnly | ApplyIntent::UnapplyOnly))
+    {
         output.line("No targets or skills selected")?;
         return Ok(());
     }
@@ -127,19 +142,6 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
     for line in summary {
         output.line(line)?;
     }
-
-    let intent = if args.unapply {
-        ApplyIntent::UnapplyOnly
-    } else if args.no_tui
-        || !args.targets.is_empty()
-        || !args.skills.is_empty()
-        || args.all_targets
-        || args.all_skills
-    {
-        ApplyIntent::ApplyOnly
-    } else {
-        ApplyIntent::DesiredState
-    };
     let results = apply_selection(intent, &selection, &targets, &skills)?;
     if args.unapply {
         output.line("Unapply results:")?;
@@ -268,7 +270,7 @@ fn compute_applied(
     for skill in skills {
         for target in targets {
             let dest = dest_dir(target, &skill.key);
-            let is_applied = symlink_matches(&skill.source_dir, &dest).unwrap_or(false);
+            let is_applied = is_symlink(&dest).unwrap_or(false);
             applied.insert((skill.key.clone(), target.key.clone()), is_applied);
         }
     }
@@ -405,17 +407,20 @@ fn apply_selection(
             match mode {
                 ActionMode::Apply => {
                     if dest.exists() {
-                        let is_managed = symlink_matches(&skill.source_dir, &dest).unwrap_or(false);
-                        if is_managed {
-                            results.skipped.push(action);
+                        if is_symlink(&dest).unwrap_or(false) {
+                            if symlink_matches(&skill.source_dir, &dest).unwrap_or(false) {
+                                results.skipped.push(action);
+                                continue;
+                            }
+                            fs::remove_file(&dest)?;
                         } else {
                             results.failed.push(FailedAction {
                                 action,
                                 reason: "destination exists and is not a managed symlink"
                                     .to_string(),
                             });
+                            continue;
                         }
-                        continue;
                     }
                     if !skill.source_exists {
                         results.failed.push(FailedAction {
@@ -482,18 +487,21 @@ enum RemoveOutcome {
     Skipped(String),
 }
 
-fn remove_applied(source: &std::path::Path, dest: &std::path::Path) -> Result<RemoveOutcome> {
+fn remove_applied(_source: &std::path::Path, dest: &std::path::Path) -> Result<RemoveOutcome> {
     let metadata = fs::symlink_metadata(dest)?;
     if !metadata.file_type().is_symlink() {
         return Ok(RemoveOutcome::Skipped("not a managed symlink".to_string()));
     }
-    if !symlink_matches(source, dest)? {
-        return Ok(RemoveOutcome::Skipped(
-            "link target does not match installed skill".to_string(),
-        ));
-    }
     fs::remove_file(dest)?;
     Ok(RemoveOutcome::Removed)
+}
+
+fn is_symlink(dest: &std::path::Path) -> Result<bool> {
+    if !dest.exists() {
+        return Ok(false);
+    }
+    let metadata = fs::symlink_metadata(dest)?;
+    Ok(metadata.file_type().is_symlink())
 }
 
 fn symlink_matches(source: &std::path::Path, dest: &std::path::Path) -> Result<bool> {
@@ -556,6 +564,7 @@ mod tests {
     fn when_desired_state_unselects_should_unapply() -> Result<()> {
         let temp = tempfile::tempdir()?;
         let base_dir = temp.path().join("targets");
+        fs::create_dir_all(&base_dir)?;
         let selected_src = temp.path().join("selected-src");
         let removed_src = temp.path().join("removed-src");
         fs::create_dir_all(&selected_src)?;
@@ -578,7 +587,7 @@ mod tests {
         };
         let removed_skill = ApplySkill {
             key: removed_key.clone(),
-            source_dir: removed_src,
+            source_dir: removed_src.clone(),
             source_exists: true,
         };
 
@@ -595,11 +604,8 @@ mod tests {
             default_selected: true,
         };
 
-        let removed_dest = base_dir
-            .join(&removed_key.namespace)
-            .join(&removed_key.name);
-        fs::create_dir_all(&removed_dest)?;
-        fs::write(removed_dest.join("SKILL.md"), "old")?;
+        let removed_dest = base_dir.join("acme__removed");
+        create_symlink_dir(&removed_src, &removed_dest)?;
 
         let selection = ApplySelection {
             targets: vec![target.key.clone()],
@@ -612,12 +618,64 @@ mod tests {
             &[selected_skill, removed_skill],
         )?;
 
-        let selected_dest = base_dir
-            .join(&selected_key.namespace)
-            .join(&selected_key.name);
+        let selected_dest = base_dir.join("acme__selected");
         assert!(selected_dest.exists());
+        assert!(
+            fs::symlink_metadata(&selected_dest)?
+                .file_type()
+                .is_symlink()
+        );
         assert!(!removed_dest.exists());
         assert_eq!(results.added.len(), 1);
+        assert_eq!(results.removed.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn when_unapplying_should_remove_mismatched_symlink() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let base_dir = temp.path().join("targets");
+        fs::create_dir_all(&base_dir)?;
+        let source_dir = temp.path().join("src");
+        let other_dir = temp.path().join("other");
+        fs::create_dir_all(&source_dir)?;
+        fs::create_dir_all(&other_dir)?;
+        fs::write(source_dir.join("SKILL.md"), "source")?;
+        fs::write(other_dir.join("SKILL.md"), "other")?;
+
+        let skill_key = SkillKey {
+            namespace: "acme".to_string(),
+            name: "echo".to_string(),
+        };
+        let skill = ApplySkill {
+            key: skill_key.clone(),
+            source_dir: source_dir.clone(),
+            source_exists: true,
+        };
+        let target = AgentTarget {
+            key: TargetKey {
+                agent: AgentId::Cursor,
+                scope: Scope::Project,
+            },
+            label: "Cursor (project)".to_string(),
+            short: "cu:p".to_string(),
+            base_dir: base_dir.clone(),
+            detected: true,
+            enabled: true,
+            default_selected: true,
+        };
+
+        let dest = dest_dir(&target, &skill_key);
+        create_symlink_dir(&other_dir, &dest)?;
+
+        let selection = ApplySelection {
+            targets: vec![target.key.clone()],
+            skills: vec![],
+        };
+        let results = apply_selection(ApplyIntent::DesiredState, &selection, &[target], &[skill])?;
+
+        assert!(!dest.exists());
         assert_eq!(results.removed.len(), 1);
 
         Ok(())
