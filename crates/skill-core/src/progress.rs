@@ -252,7 +252,7 @@ impl TuiReporter {
                     continue;
                 }
                 match key.code {
-                    KeyCode::Char('q') => {
+                    KeyCode::Esc | KeyCode::Char('q') => {
                         self.should_quit = true;
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
