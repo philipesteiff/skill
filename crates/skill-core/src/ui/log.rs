@@ -98,7 +98,9 @@ impl TuiLogUi {
         }
         self.render()?;
         let terminal = self.terminal.as_mut().expect("terminal initialized");
-        teardown_terminal(terminal)
+        teardown_terminal(terminal)?;
+        println!();
+        Ok(())
     }
 
     fn line(&mut self, message: impl Into<String>) -> Result<()> {
@@ -109,11 +111,15 @@ impl TuiLogUi {
 
 struct PlainLogUi {
     context: String,
+    printed_header: bool,
 }
 
 impl PlainLogUi {
     fn new(context: String) -> Self {
-        Self { context }
+        Self {
+            context,
+            printed_header: false,
+        }
     }
 
     fn render(&mut self) -> Result<()> {
@@ -126,7 +132,11 @@ impl PlainLogUi {
 
     fn line(&mut self, message: impl Into<String>) -> Result<()> {
         let message = message.into();
-        println!("{}: {}", self.context, message);
+        if !self.printed_header {
+            println!("{}", self.context);
+            self.printed_header = true;
+        }
+        println!("  - {message}");
         Ok(())
     }
 }
