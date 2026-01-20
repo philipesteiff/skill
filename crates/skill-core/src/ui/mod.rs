@@ -1,3 +1,4 @@
+pub mod components;
 pub mod install;
 pub mod log;
 pub mod picker;

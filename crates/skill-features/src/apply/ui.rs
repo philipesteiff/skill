@@ -7,8 +7,9 @@ use ratatui::widgets::{List, ListItem, ListState, Paragraph, Wrap};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
-use super::agents::{AgentTarget, TargetKey};
+use super::agents::{AgentTarget, Scope, TargetKey};
 use super::{ApplySelection, ApplySkill, SkillKey};
+use skill_core::ui::components::{Footer, Header};
 use skill_core::ui::terminal::{UiTerminal, safe_area, setup_inline_terminal, teardown_terminal};
 use skill_core::ui::theme;
 
@@ -16,7 +17,6 @@ use skill_core::ui::theme;
 enum Step {
     Targets,
     Skills,
-    Summary,
 }
 
 pub(super) fn run_apply_ui(
@@ -67,17 +67,7 @@ fn run_apply_loop(
                     };
                     render_skills(frame, area, &context);
                 }
-                Step::Summary => {
-                    render_summary(
-                        frame,
-                        area,
-                        targets,
-                        skills,
-                        applied,
-                        &selected_targets,
-                        &selected_skills,
-                    );
-                }
+
             }
         })?;
 
@@ -136,7 +126,10 @@ fn run_apply_loop(
                             selected_skills.clear();
                         }
                         KeyCode::Enter => {
-                            step = Step::Summary;
+                            return Ok(Some(ApplySelection {
+                                targets: selected_targets.iter().cloned().collect(),
+                                skills: selected_skills.iter().cloned().collect(),
+                            }));
                         }
                         KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Esc => {
                             step = Step::Targets;
@@ -145,17 +138,7 @@ fn run_apply_loop(
                         _ => {}
                     }
                 }
-                Step::Summary => match key.code {
-                    KeyCode::Enter => {
-                        return Ok(Some(ApplySelection {
-                            targets: selected_targets.iter().cloned().collect(),
-                            skills: selected_skills.iter().cloned().collect(),
-                        }));
-                    }
-                    KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Esc => step = Step::Skills,
-                    KeyCode::Char('q') => return Ok(None),
-                    _ => {}
-                },
+
             }
         }
     }
@@ -249,34 +232,36 @@ fn render_targets(
         .direction(Direction::Vertical)
         .constraints(
             [
-                Constraint::Length(1),
-                Constraint::Length(3),
-                Constraint::Min(1),
+                Constraint::Length(1), // Header
+                Constraint::Length(3), // Description
+                Constraint::Min(1),    // List
+                Constraint::Length(1), // Spacer
+                Constraint::Length(1), // Footer
             ]
             .as_ref(),
         )
         .split(area);
 
-    let header = Paragraph::new(Line::from(vec![
-        Span::from("Apply skills")
-            .style(theme::accent_style())
-            .bold(),
-        "  ".into(),
-        Span::from("Select agent scopes").dim(),
-    ]))
-    .alignment(Alignment::Left);
+    let header = Header::new("Apply skills");
     frame.render_widget(header, chunks[0]);
 
-    let help = Paragraph::new(vec![
-        Line::from(
-            Span::from("Up/Down: move  Space: toggle  a: all  n: none  Enter: next  Esc/q: cancel")
-                .dim(),
-        ),
+    let description = Paragraph::new(vec![
+        Line::from(Span::from("Select agent scopes to apply skills to.").dim()),
         Line::from(Span::from("Detected agents are marked; unsupported options are dimmed.").dim()),
     ])
     .alignment(Alignment::Left)
     .wrap(Wrap { trim: false });
-    frame.render_widget(help, chunks[1]);
+    frame.render_widget(description, chunks[1]);
+
+    let footer = Footer::new(vec![
+        ("Up/Down", "move"),
+        ("Space", "toggle"),
+        ("a", "all"),
+        ("n", "none"),
+        ("Enter", "next"),
+        ("Esc/q", "cancel"),
+    ]);
+    frame.render_widget(footer, chunks[4]);
 
     let list_items = targets
         .iter()
@@ -290,7 +275,15 @@ fn render_targets(
                 Span::from(checked),
                 " ".into(),
                 Span::from(target.label.clone()),
+                " ".into(),
             ];
+            
+            if target.key.scope == Scope::Global || target.detected {
+                spans.push(Span::from(format!("({})", target.base_dir.display())).dim());
+            } else {
+                 spans.push(Span::from("(skill folder not found)").dim());
+            }
+
             if target.detected {
                 spans.push(" ".into());
                 spans.push(Span::from("detected").style(theme::accent_style()).bold());
@@ -335,64 +328,57 @@ fn render_skills(
         .direction(Direction::Vertical)
         .constraints(
             [
-                Constraint::Length(1),
-                Constraint::Length(2),
-                Constraint::Min(1),
+                Constraint::Length(1), // Header
+                Constraint::Length(1), // Stats
+                Constraint::Length(1), // Spacer (Header/List gap)
+                Constraint::Min(1),    // List
+                Constraint::Length(1), // Spacer (List/Footer gap)
+                Constraint::Length(1), // Footer
             ]
             .as_ref(),
         )
         .split(area);
 
-    let target_count = context.selected_targets.len();
-    let remove_count = context
-        .skills
-        .iter()
-        .filter(|skill| !context.selected_skills.contains(&skill.key))
-        .filter(|skill| {
-            context.selected_targets.iter().any(|target| {
-                context
-                    .applied
-                    .get(&(skill.key.clone(), target.clone()))
-                    .copied()
-                    .unwrap_or(false)
-            })
-        })
-        .count();
-    let remove_label = if remove_count == 1 {
-        "1 will be removed".to_string()
-    } else {
-        format!("{remove_count} will be removed")
-    };
-    let header = Paragraph::new(Line::from(vec![
-        Span::from("Select skills")
-            .style(theme::accent_style())
-            .bold(),
-        "  ".into(),
-        Span::from(format!("Targets: {target_count}")).dim(),
-        "  ".into(),
-        Span::from(remove_label).dim(),
-    ]))
-    .alignment(Alignment::Left);
+    let header = Header::new("Select skills");
     frame.render_widget(header, chunks[0]);
 
-    let help = Paragraph::new(vec![
-        Line::from(
-            Span::from("Up/Down: move  Space: toggle  a: all  n: none  b: back  Enter: next").dim(),
-        ),
-        Line::from(
-            Span::from("Skills already applied show a check for each selected target.").dim(),
-        ),
-        Line::from(Span::from("Unselected skills will be removed from selected targets.").dim()),
-    ])
+    let stats = Paragraph::new(Line::from(vec![
+        Span::from("Applying to: ").dim(),
+        Span::from(
+            context
+                .targets
+                .iter()
+                .filter(|t| context.selected_targets.contains(&t.key))
+                .map(|t| format!("{} <{}>", t.label, t.base_dir.display()))
+                .collect::<Vec<_>>()
+                .join(", "),
+        )
+        .style(theme::accent_style()),
+    ]))
     .alignment(Alignment::Left)
     .wrap(Wrap { trim: false });
-    frame.render_widget(help, chunks[1]);
+    frame.render_widget(stats, chunks[1]);
+
+
+    
+    // Old warning replaced by inline status
+    
+    let footer = Footer::new(vec![
+        ("Up/Down", "move"),
+        ("Space", "toggle"),
+        ("a", "all"),
+        ("n", "none"),
+        ("b", "back"),
+        ("Enter", "next"),
+    ]);
+    frame.render_widget(footer, chunks[5]);
 
     let list_items = context
         .skills
         .iter()
         .map(|skill| {
-            let checked = if context.selected_skills.contains(&skill.key) {
+            let is_selected = context.selected_skills.contains(&skill.key);
+            let checked = if is_selected {
                 "[x]"
             } else {
                 "[ ]"
@@ -406,16 +392,35 @@ fn render_skills(
                 spans.push(" ".into());
                 spans.push(Span::from("missing source").dim());
             }
-            let mut status = status_tokens(
-                context.targets,
-                context.selected_targets,
-                skill,
-                context.applied,
-            );
-            if !status.is_empty() {
-                spans.push(" ".into());
-                spans.append(&mut status);
+            // Status logic
+            let currently_installed_count = context
+                .selected_targets
+                .iter()
+                .filter(|target_key| {
+                     context.applied.get(&(skill.key.clone(), (*target_key).clone())).copied().unwrap_or(false)
+                })
+                .count();
+            let target_count = context.selected_targets.len();
+            
+            if is_selected {
+                if currently_installed_count == target_count {
+                    spans.push(" ".into());
+                   // spans.push(Span::from("(Installed)").style(theme::success_style()));
+                     spans.push(Span::from("(Installed)").dim());
+                } else if currently_installed_count == 0 {
+                    spans.push(" ".into());
+                    spans.push(Span::from("(Will Install)").style(theme::success_style()).bold());
+                } else {
+                    spans.push(" ".into());
+                    spans.push(Span::from("(Will Update)").style(theme::success_style()).bold());
+                }
+            } else {
+                 if currently_installed_count > 0 {
+                    spans.push(" ".into());
+                    spans.push(Span::from("(Will Remove)").style(theme::error_style()).bold());
+                }
             }
+
             let line = Line::from(spans);
             if skill.source_exists {
                 ListItem::new(line)
@@ -431,127 +436,9 @@ fn render_skills(
             .add_modifier(Modifier::REVERSED),
     );
     let mut state = *context.state;
-    frame.render_stateful_widget(list, chunks[2], &mut state);
+    frame.render_stateful_widget(list, chunks[3], &mut state);
 }
 
-fn status_tokens(
-    targets: &[AgentTarget],
-    selected_targets: &HashSet<TargetKey>,
-    skill: &ApplySkill,
-    applied: &HashMap<(SkillKey, TargetKey), bool>,
-) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
-    for target in targets {
-        if !selected_targets.contains(&target.key) {
-            continue;
-        }
-        let applied_now = applied
-            .get(&(skill.key.clone(), target.key.clone()))
-            .copied()
-            .unwrap_or(false);
-        let marker = if applied_now { "*" } else { "." };
-        let short = &target.short;
-        let token = format!("{short}{marker}");
-        let span = if applied_now {
-            Span::from(token).style(theme::success_style())
-        } else {
-            Span::from(token).dim()
-        };
-        spans.push(span);
-        spans.push(" ".into());
-    }
-    if !spans.is_empty() {
-        spans.pop();
-    }
-    spans
-}
 
-fn render_summary(
-    frame: &mut ratatui::Frame,
-    area: ratatui::layout::Rect,
-    targets: &[AgentTarget],
-    skills: &[ApplySkill],
-    applied: &HashMap<(SkillKey, TargetKey), bool>,
-    selected_targets: &HashSet<TargetKey>,
-    selected_skills: &HashSet<SkillKey>,
-) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(1)].as_ref())
-        .split(area);
 
-    let header = Paragraph::new(Line::from(vec![
-        Span::from("Confirm changes")
-            .style(theme::accent_style())
-            .bold(),
-        "  ".into(),
-        Span::from("Enter: apply  b: back  Esc/q: cancel").dim(),
-    ]))
-    .alignment(Alignment::Left);
-    frame.render_widget(header, chunks[0]);
 
-    let skill_labels = skills
-        .iter()
-        .filter(|skill| selected_skills.contains(&skill.key))
-        .map(|skill| {
-            let label = skill.key.label();
-            format!("- {label}")
-        })
-        .collect::<Vec<_>>();
-    let remove_labels = skills
-        .iter()
-        .filter(|skill| !selected_skills.contains(&skill.key))
-        .filter(|skill| {
-            selected_targets.iter().any(|target| {
-                applied
-                    .get(&(skill.key.clone(), target.clone()))
-                    .copied()
-                    .unwrap_or(false)
-            })
-        })
-        .map(|skill| {
-            let label = skill.key.label();
-            format!("- {label}")
-        })
-        .collect::<Vec<_>>();
-    let target_labels = targets
-        .iter()
-        .filter(|target| selected_targets.contains(&target.key))
-        .map(|target| {
-            let label = &target.label;
-            let dir = target.base_dir.display();
-            format!("- {label} -> {dir}")
-        })
-        .collect::<Vec<_>>();
-    let mut lines = Vec::new();
-    lines.push(Line::from(
-        Span::from("Skills:").style(theme::accent_style()).bold(),
-    ));
-    if skill_labels.is_empty() {
-        lines.push(Line::from("No skills selected".dim()));
-    } else {
-        lines.extend(skill_labels.into_iter().map(Line::from));
-    }
-    lines.push(Line::from(
-        Span::from("Will remove:")
-            .style(theme::accent_style())
-            .bold(),
-    ));
-    if remove_labels.is_empty() {
-        lines.push(Line::from("None".dim()));
-    } else {
-        lines.extend(remove_labels.into_iter().map(Line::from));
-    }
-    lines.push(Line::from(
-        Span::from("Targets:").style(theme::accent_style()).bold(),
-    ));
-    if target_labels.is_empty() {
-        lines.push(Line::from("No targets selected".dim()));
-    } else {
-        lines.extend(target_labels.into_iter().map(Line::from));
-    }
-    let body = Paragraph::new(lines)
-        .alignment(Alignment::Left)
-        .wrap(Wrap { trim: false });
-    frame.render_widget(body, chunks[1]);
-}
