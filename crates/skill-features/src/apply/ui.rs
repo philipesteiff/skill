@@ -138,10 +138,10 @@ fn run_apply_loop(
                         KeyCode::Enter => {
                             step = Step::Summary;
                         }
-                        KeyCode::Backspace | KeyCode::Char('b') => {
+                        KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Esc => {
                             step = Step::Targets;
                         }
-                        KeyCode::Esc | KeyCode::Char('q') => return Ok(None),
+                        KeyCode::Char('q') => return Ok(None),
                         _ => {}
                     }
                 }
@@ -152,8 +152,8 @@ fn run_apply_loop(
                             skills: selected_skills.iter().cloned().collect(),
                         }));
                     }
-                    KeyCode::Backspace | KeyCode::Char('b') => step = Step::Skills,
-                    KeyCode::Esc | KeyCode::Char('q') => return Ok(None),
+                    KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Esc => step = Step::Skills,
+                    KeyCode::Char('q') => return Ok(None),
                     _ => {}
                 },
             }
