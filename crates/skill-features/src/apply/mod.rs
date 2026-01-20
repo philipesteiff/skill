@@ -155,7 +155,11 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
     if !results.added.is_empty() {
         output.line("Added:")?;
         for entry in results.added {
-            output.line(format!("  [+] {} -> {}", entry.skill.label(), entry.target.label()))?;
+            output.line(format!(
+                "  [+] {} -> {}",
+                entry.skill.label(),
+                entry.target.label()
+            ))?;
         }
         output.line("")?;
     }
@@ -163,15 +167,11 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
     if !results.removed.is_empty() {
         output.line("Removed:")?;
         for entry in results.removed {
-            output.line(format!("  [-] {} from {}", entry.skill.label(), entry.target.label()))?;
-        }
-        output.line("")?;
-    }
-
-    if !results.skipped.is_empty() {
-        output.line("Skipped (Already matching):")?;
-        for entry in results.skipped {
-            output.line(format!("  [.] {} on {}", entry.skill.label(), entry.target.label()))?;
+            output.line(format!(
+                "  [-] {} from {}",
+                entry.skill.label(),
+                entry.target.label()
+            ))?;
         }
         output.line("")?;
     }
@@ -179,7 +179,12 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
     if !results.failed.is_empty() {
         output.line("Failed:")?;
         for entry in results.failed {
-            output.line(format!("  [!] {} on {}: {}", entry.action.skill.label(), entry.action.target.label(), entry.reason))?;
+            output.line(format!(
+                "  [!] {} on {}: {}",
+                entry.action.skill.label(),
+                entry.action.target.label(),
+                entry.reason
+            ))?;
         }
         output.line("")?;
     }
@@ -284,8 +289,6 @@ fn dest_dir(target: &AgentTarget, skill: &SkillKey) -> PathBuf {
         .base_dir
         .join(format!("{}__{}", skill.namespace, skill.name))
 }
-
-
 
 struct ApplyAction {
     skill: SkillKey,
