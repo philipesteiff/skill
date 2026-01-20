@@ -18,7 +18,7 @@ impl LogUi {
         let context = context.into();
         if std::io::stdout().is_terminal() {
             Ok(Self {
-                inner: LogUiInner::Tui(TuiLogUi::new(context)?),
+                inner: LogUiInner::Tui(TuiLogUi::new(context)),
             })
         } else {
             Ok(Self {
@@ -57,24 +57,35 @@ enum LogUiInner {
 }
 
 struct TuiLogUi {
-    terminal: UiTerminal,
+    terminal: Option<UiTerminal>,
     context: String,
     lines: Vec<String>,
 }
 
 impl TuiLogUi {
-    fn new(context: String) -> Result<Self> {
-        Ok(Self {
-            terminal: setup_inline_terminal()?,
+    fn new(context: String) -> Self {
+        Self {
+            terminal: None,
             context,
             lines: Vec::new(),
-        })
+        }
+    }
+
+    fn ensure_terminal(&mut self) -> Result<()> {
+        if self.terminal.is_none() {
+            let mut terminal = setup_inline_terminal()?;
+            terminal.clear()?;
+            self.terminal = Some(terminal);
+        }
+        Ok(())
     }
 
     fn render(&mut self) -> Result<()> {
+        self.ensure_terminal()?;
         let context = self.context.clone();
         let lines = self.lines.clone();
-        self.terminal.draw(|frame| {
+        let terminal = self.terminal.as_mut().expect("terminal initialized");
+        terminal.draw(|frame| {
             let area = safe_area(frame.area());
             render_log(frame, area, &context, &lines);
         })?;
@@ -82,8 +93,12 @@ impl TuiLogUi {
     }
 
     fn finish(&mut self) -> Result<()> {
+        if self.terminal.is_none() {
+            return Ok(());
+        }
         self.render()?;
-        teardown_terminal(&mut self.terminal)
+        let terminal = self.terminal.as_mut().expect("terminal initialized");
+        teardown_terminal(terminal)
     }
 
     fn line(&mut self, message: impl Into<String>) -> Result<()> {
