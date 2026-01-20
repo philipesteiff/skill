@@ -67,7 +67,6 @@ fn run_apply_loop(
                     };
                     render_skills(frame, area, &context);
                 }
-
             }
         })?;
 
@@ -138,7 +137,6 @@ fn run_apply_loop(
                         _ => {}
                     }
                 }
-
             }
         }
     }
@@ -277,11 +275,11 @@ fn render_targets(
                 Span::from(target.label.clone()),
                 " ".into(),
             ];
-            
+
             if target.key.scope == Scope::Global || target.detected {
                 spans.push(Span::from(format!("({})", target.base_dir.display())).dim());
             } else {
-                 spans.push(Span::from("(skill folder not found)").dim());
+                spans.push(Span::from("(skill folder not found)").dim());
             }
 
             if target.detected {
@@ -359,10 +357,8 @@ fn render_skills(
     .wrap(Wrap { trim: false });
     frame.render_widget(stats, chunks[1]);
 
-
-    
     // Old warning replaced by inline status
-    
+
     let footer = Footer::new(vec![
         ("Up/Down", "move"),
         ("Space", "toggle"),
@@ -378,11 +374,7 @@ fn render_skills(
         .iter()
         .map(|skill| {
             let is_selected = context.selected_skills.contains(&skill.key);
-            let checked = if is_selected {
-                "[x]"
-            } else {
-                "[ ]"
-            };
+            let checked = if is_selected { "[x]" } else { "[ ]" };
             let mut spans = vec![
                 Span::from(checked),
                 " ".into(),
@@ -397,27 +389,43 @@ fn render_skills(
                 .selected_targets
                 .iter()
                 .filter(|target_key| {
-                     context.applied.get(&(skill.key.clone(), (*target_key).clone())).copied().unwrap_or(false)
+                    context
+                        .applied
+                        .get(&(skill.key.clone(), (*target_key).clone()))
+                        .copied()
+                        .unwrap_or(false)
                 })
                 .count();
             let target_count = context.selected_targets.len();
-            
+
             if is_selected {
                 if currently_installed_count == target_count {
                     spans.push(" ".into());
-                   // spans.push(Span::from("(Installed)").style(theme::success_style()));
-                     spans.push(Span::from("(Installed)").dim());
+                    // spans.push(Span::from("(Installed)").style(theme::success_style()));
+                    spans.push(Span::from("(Installed)").dim());
                 } else if currently_installed_count == 0 {
                     spans.push(" ".into());
-                    spans.push(Span::from("(Will Install)").style(theme::success_style()).bold());
+                    spans.push(
+                        Span::from("(Will Install)")
+                            .style(theme::success_style())
+                            .bold(),
+                    );
                 } else {
                     spans.push(" ".into());
-                    spans.push(Span::from("(Will Update)").style(theme::success_style()).bold());
+                    spans.push(
+                        Span::from("(Will Update)")
+                            .style(theme::success_style())
+                            .bold(),
+                    );
                 }
             } else {
-                 if currently_installed_count > 0 {
+                if currently_installed_count > 0 {
                     spans.push(" ".into());
-                    spans.push(Span::from("(Will Remove)").style(theme::error_style()).bold());
+                    spans.push(
+                        Span::from("(Will Remove)")
+                            .style(theme::error_style())
+                            .bold(),
+                    );
                 }
             }
 
@@ -438,7 +446,3 @@ fn render_skills(
     let mut state = *context.state;
     frame.render_stateful_widget(list, chunks[3], &mut state);
 }
-
-
-
-

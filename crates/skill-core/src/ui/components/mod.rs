@@ -1,5 +1,5 @@
-mod header;
 mod footer;
+mod header;
 
-pub use header::Header;
 pub use footer::Footer;
+pub use header::Header;

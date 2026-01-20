@@ -31,7 +31,7 @@ impl Widget for Footer<'_> {
                 s
             })
             .collect();
-        
+
         let line = Line::from(spans);
         Paragraph::new(line)
             .alignment(Alignment::Left)

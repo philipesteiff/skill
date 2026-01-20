@@ -18,6 +18,8 @@ impl<'a> Header<'a> {
 impl Widget for Header<'_> {
     fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
         let text = Span::from(self.title).style(theme::accent_style()).bold();
-        Paragraph::new(text).alignment(Alignment::Left).render(area, buf);
+        Paragraph::new(text)
+            .alignment(Alignment::Left)
+            .render(area, buf);
     }
 }
