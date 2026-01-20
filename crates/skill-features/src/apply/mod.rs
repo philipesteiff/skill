@@ -133,53 +133,55 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
         return Ok(());
     }
 
-    let summary = build_summary(&selection, &targets, &skills);
-    if args.unapply {
-        output.line("Planned unapply:")?;
-    } else {
-        output.line("Planned apply:")?;
-    }
-    for line in summary {
-        output.line(line)?;
-    }
     let results = apply_selection(intent, &selection, &targets, &skills)?;
+
+    output.line("")?;
     if args.unapply {
-        output.line("Unapply results:")?;
+        output.line(format!("{} Unapply Results", "=".repeat(5)))?;
     } else {
-        output.line("Apply results:")?;
+        output.line(format!("{} Apply Results", "=".repeat(5)))?;
     }
+    output.line("")?;
+
     if results.added.is_empty()
         && results.removed.is_empty()
         && results.skipped.is_empty()
         && results.failed.is_empty()
     {
-        output.line("- No actions taken")?;
+        output.line("No actions taken")?;
+        return Ok(());
     }
-    for entry in results.added {
-        let skill = entry.skill.label();
-        let target = entry.target.label();
-        output.line(format!("- Added {skill} to {target}"))?;
+
+    if !results.added.is_empty() {
+        output.line("Added:")?;
+        for entry in results.added {
+            output.line(format!("  [+] {} -> {}", entry.skill.label(), entry.target.label()))?;
+        }
+        output.line("")?;
     }
-    for entry in results.removed {
-        let skill = entry.skill.label();
-        let target = entry.target.label();
-        output.line(format!("- Removed {skill} from {target}"))?;
+
+    if !results.removed.is_empty() {
+        output.line("Removed:")?;
+        for entry in results.removed {
+            output.line(format!("  [-] {} from {}", entry.skill.label(), entry.target.label()))?;
+        }
+        output.line("")?;
     }
-    for entry in results.skipped {
-        let skill = entry.skill.label();
-        let target = entry.target.label();
-        let reason = if args.unapply {
-            "not applied"
-        } else {
-            "already applied"
-        };
-        output.line(format!("- Skipped {skill} on {target} ({reason})"))?;
+
+    if !results.skipped.is_empty() {
+        output.line("Skipped (Already matching):")?;
+        for entry in results.skipped {
+            output.line(format!("  [.] {} on {}", entry.skill.label(), entry.target.label()))?;
+        }
+        output.line("")?;
     }
-    for entry in results.failed {
-        let skill = entry.action.skill.label();
-        let target = entry.action.target.label();
-        let reason = entry.reason;
-        output.line(format!("- Failed {skill} on {target} ({reason})"))?;
+
+    if !results.failed.is_empty() {
+        output.line("Failed:")?;
+        for entry in results.failed {
+            output.line(format!("  [!] {} on {}: {}", entry.action.skill.label(), entry.action.target.label(), entry.reason))?;
+        }
+        output.line("")?;
     }
 
     Ok(())
@@ -283,42 +285,7 @@ fn dest_dir(target: &AgentTarget, skill: &SkillKey) -> PathBuf {
         .join(format!("{}__{}", skill.namespace, skill.name))
 }
 
-fn build_summary(
-    selection: &ApplySelection,
-    targets: &[AgentTarget],
-    skills: &[ApplySkill],
-) -> Vec<String> {
-    let target_map = targets
-        .iter()
-        .map(|target| (target.key.clone(), target))
-        .collect::<HashMap<_, _>>();
-    let skill_map = skills
-        .iter()
-        .map(|skill| (skill.key.clone(), skill))
-        .collect::<HashMap<_, _>>();
-    let mut lines = Vec::new();
-    let skill_labels = selection
-        .skills
-        .iter()
-        .filter_map(|key| skill_map.get(key))
-        .map(|skill| skill.key.label())
-        .collect::<Vec<_>>();
-    let target_labels = selection
-        .targets
-        .iter()
-        .filter_map(|key| target_map.get(key))
-        .map(|target| {
-            let label = &target.label;
-            let dir = target.base_dir.display();
-            format!("{label} -> {dir}")
-        })
-        .collect::<Vec<_>>();
-    let skills_summary = skill_labels.join(", ");
-    let targets_summary = target_labels.join(", ");
-    lines.push(format!("- Skills: {skills_summary}"));
-    lines.push(format!("- Targets: {targets_summary}"));
-    lines
-}
+
 
 struct ApplyAction {
     skill: SkillKey,

@@ -135,6 +135,7 @@ pub struct DetectedAgent {
 pub struct AgentTarget {
     pub key: TargetKey,
     pub label: String,
+    #[allow(dead_code)]
     pub short: String,
     pub base_dir: PathBuf,
     pub detected: bool,
