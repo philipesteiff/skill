@@ -99,8 +99,8 @@ fn filter_by_selection(
             let selected: HashSet<&String> = selected.iter().collect();
             Ok(skills
                 .iter()
-                .cloned()
                 .filter(|skill| selected.contains(&skill.path))
+                .cloned()
                 .collect())
         }
     }

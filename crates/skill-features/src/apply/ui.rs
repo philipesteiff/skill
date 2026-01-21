@@ -418,15 +418,13 @@ fn render_skills(
                             .bold(),
                     );
                 }
-            } else {
-                if currently_installed_count > 0 {
-                    spans.push(" ".into());
-                    spans.push(
-                        Span::from("(Will Remove)")
-                            .style(theme::error_style())
-                            .bold(),
-                    );
-                }
+            } else if currently_installed_count > 0 {
+                spans.push(" ".into());
+                spans.push(
+                    Span::from("(Will Remove)")
+                        .style(theme::error_style())
+                        .bold(),
+                );
             }
 
             let line = Line::from(spans);
