@@ -4,29 +4,27 @@ use anyhow::Result;
 use std::fs;
 use std::path::Path;
 
-use support::{Playground, run_skill, run_skill_in_dir};
+use support::{run_skill, run_skill_in_dir};
 
 use skill_core::lockfile::{LockedSkill, Lockfile};
 
-fn seed_install(paths: &Path, namespace: &str, name: &str, source: &Path) -> Result<()> {
+fn seed_install(paths: &Path, source_id: &str, name: &str, source: &Path) -> Result<()> {
     let install_dir = paths
         .join("installed")
-        .join(namespace)
+        .join(source_id)
         .join(name)
         .join("latest");
     fs::create_dir_all(&install_dir)?;
     fs::copy(source, install_dir.join("SKILL.md"))?;
     let lockfile = Lockfile {
         skills: vec![LockedSkill {
-            namespace: namespace.to_string(),
+            source_id: source_id.to_string(),
             name: name.to_string(),
-            requested: "@latest".to_string(),
             resolved_version: None,
             resolved_commit: "deadbeef".to_string(),
-            repo_url: "file:///tmp/skills-repo".to_string(),
             path: format!("skills/{name}"),
             install_dir: install_dir.to_string_lossy().to_string(),
-            registry_id: None,
+            updated_at: None,
         }],
     };
     fs::write(
@@ -84,18 +82,14 @@ fn when_applying_without_args_should_error() -> Result<()> {
 
 #[test]
 fn when_applying_non_interactive_should_link_skill() -> Result<()> {
-    let playground = Playground::new()?;
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
 
-    let output = run_skill(&["sync"], &playground.skills_home, None)?;
-    assert!(output.status.success());
-    let output = run_skill(
-        &["install", "acme/echo-skill"],
-        &playground.skills_home,
-        None,
-    )?;
-    assert!(output.status.success());
-
-    let project_dir = playground.root().join("project");
+    let project_dir = temp.path().join("project");
     fs::create_dir_all(project_dir.join(".claude/skills"))?;
 
     let output = run_skill(
@@ -107,7 +101,7 @@ fn when_applying_non_interactive_should_link_skill() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
     )?;
     assert!(output.status.success());
@@ -121,20 +115,17 @@ fn when_applying_non_interactive_should_link_skill() -> Result<()> {
 
 #[test]
 fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
-    let playground = Playground::new()?;
-    let home_dir = playground.root().join("home");
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let home_dir = temp.path().join("home");
     fs::create_dir_all(&home_dir)?;
 
-    let output = run_skill(&["sync"], &playground.skills_home, None)?;
-    assert!(output.status.success());
-    let output = run_skill(
-        &["install", "acme/echo-skill"],
-        &playground.skills_home,
-        None,
-    )?;
-    assert!(output.status.success());
-
-    let project_dir = playground.root().join("project-all");
+    let project_dir = temp.path().join("project-all");
     fs::create_dir_all(&project_dir)?;
 
     let output = support::run_skill_with_env(
@@ -145,7 +136,7 @@ fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -190,18 +181,14 @@ fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
 
 #[test]
 fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
-    let playground = Playground::new()?;
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
 
-    let output = run_skill(&["sync"], &playground.skills_home, None)?;
-    assert!(output.status.success());
-    let output = run_skill(
-        &["install", "acme/echo-skill"],
-        &playground.skills_home,
-        None,
-    )?;
-    assert!(output.status.success());
-
-    let project_dir = playground.root().join("project-unapply");
+    let project_dir = temp.path().join("project-unapply");
     fs::create_dir_all(project_dir.join(".claude/skills"))?;
 
     let output = run_skill(
@@ -213,7 +200,7 @@ fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
     )?;
     assert!(output.status.success());
@@ -232,7 +219,7 @@ fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
     )?;
     assert!(output.status.success());
@@ -244,20 +231,17 @@ fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
 
 #[test]
 fn when_unapplying_all_targets_should_remove_from_all_agents() -> Result<()> {
-    let playground = Playground::new()?;
-    let home_dir = playground.root().join("home-unapply");
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let home_dir = temp.path().join("home-unapply");
     fs::create_dir_all(&home_dir)?;
 
-    let output = run_skill(&["sync"], &playground.skills_home, None)?;
-    assert!(output.status.success());
-    let output = run_skill(
-        &["install", "acme/echo-skill"],
-        &playground.skills_home,
-        None,
-    )?;
-    assert!(output.status.success());
-
-    let project_dir = playground.root().join("project-unapply-all");
+    let project_dir = temp.path().join("project-unapply-all");
     fs::create_dir_all(&project_dir)?;
 
     let output = support::run_skill_with_env(
@@ -268,7 +252,7 @@ fn when_unapplying_all_targets_should_remove_from_all_agents() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -283,7 +267,7 @@ fn when_unapplying_all_targets_should_remove_from_all_agents() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -320,20 +304,17 @@ fn when_unapplying_all_targets_should_remove_from_all_agents() -> Result<()> {
 
 #[test]
 fn when_unapplying_global_target_should_remove_global_only() -> Result<()> {
-    let playground = Playground::new()?;
-    let home_dir = playground.root().join("home-unapply-global");
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let home_dir = temp.path().join("home-unapply-global");
     fs::create_dir_all(&home_dir)?;
 
-    let output = run_skill(&["sync"], &playground.skills_home, None)?;
-    assert!(output.status.success());
-    let output = run_skill(
-        &["install", "acme/echo-skill"],
-        &playground.skills_home,
-        None,
-    )?;
-    assert!(output.status.success());
-
-    let project_dir = playground.root().join("project-unapply-global");
+    let project_dir = temp.path().join("project-unapply-global");
     fs::create_dir_all(&project_dir)?;
 
     let output = support::run_skill_with_env(
@@ -345,7 +326,7 @@ fn when_unapplying_global_target_should_remove_global_only() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -368,7 +349,7 @@ fn when_unapplying_global_target_should_remove_global_only() -> Result<()> {
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -382,21 +363,18 @@ fn when_unapplying_global_target_should_remove_global_only() -> Result<()> {
 
 #[test]
 fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<()> {
-    let playground = Playground::new()?;
-    let home_dir = playground.root().join("home-isolation");
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let home_dir = temp.path().join("home-isolation");
     fs::create_dir_all(&home_dir)?;
 
-    let output = run_skill(&["sync"], &playground.skills_home, None)?;
-    assert!(output.status.success());
-    let output = run_skill(
-        &["install", "acme/echo-skill"],
-        &playground.skills_home,
-        None,
-    )?;
-    assert!(output.status.success());
-
-    let project_a = playground.root().join("project-a");
-    let project_b = playground.root().join("project-b");
+    let project_a = temp.path().join("project-a");
+    let project_b = temp.path().join("project-b");
     fs::create_dir_all(&project_a)?;
     fs::create_dir_all(&project_b)?;
 
@@ -409,7 +387,7 @@ fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<(
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_a),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -424,7 +402,7 @@ fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<(
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_b),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -447,7 +425,7 @@ fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<(
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_b),
         &[("HOME".to_string(), home_dir.to_string_lossy().to_string())],
     )?;
@@ -461,18 +439,14 @@ fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<(
 
 #[test]
 fn when_applying_project_target_without_markers_should_still_apply() -> Result<()> {
-    let playground = Playground::new()?;
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
 
-    let output = run_skill(&["sync"], &playground.skills_home, None)?;
-    assert!(output.status.success());
-    let output = run_skill(
-        &["install", "acme/echo-skill"],
-        &playground.skills_home,
-        None,
-    )?;
-    assert!(output.status.success());
-
-    let project_dir = playground.root().join("project-no-markers");
+    let project_dir = temp.path().join("project-no-markers");
     fs::create_dir_all(&project_dir)?;
 
     let output = run_skill(
@@ -484,7 +458,7 @@ fn when_applying_project_target_without_markers_should_still_apply() -> Result<(
             "--skills",
             "acme/echo-skill",
         ],
-        &playground.skills_home,
+        &skills_home,
         Some(&project_dir),
     )?;
     assert!(output.status.success());

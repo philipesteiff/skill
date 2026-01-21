@@ -427,11 +427,7 @@ impl Drop for TuiReporter {
 }
 
 fn map_step(message: &str) -> Option<InstallStep> {
-    if message.starts_with("Parsing reference")
-        || message.starts_with("Resolving git URL")
-        || message.starts_with("Falling back to GitHub shorthand")
-        || message.starts_with("Checking registries")
-        || message.starts_with("Resolving version")
+    if message.starts_with("Resolving source")
         || message.starts_with("Resolving commit")
         || message.starts_with("Preparing local mirror cache")
         || message.starts_with("Scanning repo")

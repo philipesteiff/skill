@@ -20,6 +20,15 @@ pub struct SkillSummary {
     pub description: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct SkillDetails {
+    pub name: String,
+    pub description: String,
+    pub version: Option<String>,
+    pub tags: Vec<String>,
+    pub namespace: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct Frontmatter {
     name: String,
@@ -76,6 +85,28 @@ pub fn parse_skill_summary(contents: &str, dir_name: &str) -> Result<SkillSummar
     Ok(SkillSummary {
         name: frontmatter.name,
         description: frontmatter.description,
+    })
+}
+
+pub fn parse_skill_details(contents: &str, dir_name: &str) -> Result<SkillDetails> {
+    let frontmatter = parse_frontmatter(contents)?;
+    validate_name(&frontmatter.name)?;
+    if dir_name != frontmatter.name {
+        return Err(anyhow!(
+            "skill name '{}' does not match directory '{}'",
+            frontmatter.name,
+            dir_name
+        ));
+    }
+
+    let (version, tags, namespace) = extract_metadata(frontmatter.metadata.as_ref());
+
+    Ok(SkillDetails {
+        name: frontmatter.name,
+        description: frontmatter.description,
+        version,
+        tags,
+        namespace,
     })
 }
 
