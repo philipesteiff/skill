@@ -503,7 +503,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("temp dir");
         let skill = ApplySkill {
             key: SkillKey {
-                namespace: "acme".to_string(),
+                source_id: "acme".to_string(),
                 name: "echo".to_string(),
             },
             source_dir: temp.path().join("src"),
@@ -543,11 +543,11 @@ mod tests {
         fs::write(removed_src.join("SKILL.md"), "removed")?;
 
         let selected_key = SkillKey {
-            namespace: "acme".to_string(),
+            source_id: "acme".to_string(),
             name: "selected".to_string(),
         };
         let removed_key = SkillKey {
-            namespace: "acme".to_string(),
+            source_id: "acme".to_string(),
             name: "removed".to_string(),
         };
         let selected_skill = ApplySkill {
@@ -615,7 +615,7 @@ mod tests {
         fs::write(other_dir.join("SKILL.md"), "other")?;
 
         let skill_key = SkillKey {
-            namespace: "acme".to_string(),
+            source_id: "acme".to_string(),
             name: "echo".to_string(),
         };
         let skill = ApplySkill {

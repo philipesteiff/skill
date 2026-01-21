@@ -103,6 +103,7 @@ pub fn run(paths: &Paths, args: BrowseArgs) -> Result<()> {
             repo_url: source_cfg.url.clone(),
             path: skill.path.clone(),
             commit: skill.commit.clone(),
+            content_hash: Some(skill.content_hash.clone()),
             expected_name: Some(skill.name.clone()),
             version: skill.version.clone(),
             updated_at: Some(skill.updated_at.clone()),

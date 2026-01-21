@@ -41,7 +41,7 @@ pub fn ensure_index(
     let head_path = paths.source_head_path(&source.id);
     let previous = read_to_string(&head_path).unwrap_or_default();
     let index_path = paths.source_index_path(&source.id);
-    if previous.trim() == head && index_path.exists() {
+    if previous.trim() == head && index_path.exists() && source_index::is_compatible(&index_path)? {
         return Ok(head);
     }
 
@@ -95,8 +95,13 @@ fn scan_repo_skills(mirror_path: &Path, head_commit: &str) -> Result<SourceScan>
         match skills::parse_skill_details(&contents, dir_name) {
             Ok(details) => {
                 let skill_path = dir.to_string_lossy().to_string();
-                let (commit, updated_at) =
-                    match git::last_commit_and_date(mirror_path, head_commit, &skill_path) {
+                let content_hash = match git::object_hash(mirror_path, head_commit, &skill_path) {
+                    Ok(hash) => hash,
+                    Err(_) => head_commit.to_string(),
+                };
+                // Use the SKILL.md path for the "last updated" stamp.
+                let (_, updated_at) =
+                    match git::last_commit_and_date(mirror_path, head_commit, &file) {
                         Ok((commit, date)) => (commit, date),
                         Err(_) => (head_commit.to_string(), head_date.clone()),
                     };
@@ -106,7 +111,8 @@ fn scan_repo_skills(mirror_path: &Path, head_commit: &str) -> Result<SourceScan>
                     tags: details.tags,
                     path: skill_path,
                     updated_at,
-                    commit,
+                    commit: head_commit.to_string(),
+                    content_hash,
                     version: details.version,
                 });
             }

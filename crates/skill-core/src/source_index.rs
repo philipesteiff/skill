@@ -12,6 +12,7 @@ pub struct IndexedSkill {
     pub path: String,
     pub updated_at: String,
     pub commit: String,
+    pub content_hash: String,
     pub version: Option<String>,
 }
 
@@ -38,6 +39,7 @@ pub fn rebuild_index(
             path TEXT,
             updated_at TEXT,
             commit_sha TEXT,
+            content_hash TEXT,
             version TEXT
         );
         CREATE VIRTUAL TABLE skills_fts USING fts5(
@@ -52,8 +54,8 @@ pub fn rebuild_index(
     for skill in skills {
         let tags = skill.tags.join(" ");
         conn.execute(
-            "INSERT INTO skills (name, description, tags, path, updated_at, commit_sha, version)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO skills (name, description, tags, path, updated_at, commit_sha, content_hash, version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 skill.name,
                 skill.description,
@@ -61,6 +63,7 @@ pub fn rebuild_index(
                 skill.path,
                 skill.updated_at,
                 skill.commit,
+                skill.content_hash,
                 skill.version
             ],
         )?;
@@ -76,6 +79,18 @@ pub fn rebuild_index(
     Ok(())
 }
 
+pub fn is_compatible(index_path: &std::path::Path) -> Result<bool> {
+    let conn = Connection::open(index_path)?;
+    let mut stmt = conn.prepare("PRAGMA table_info(skills)")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for row in rows {
+        if row? == "content_hash" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn list_all(paths: &Paths, source_id: &str) -> Result<Vec<IndexedSkill>> {
     let index_path = paths.source_index_path(source_id);
     if !index_path.exists() {
@@ -83,7 +98,7 @@ pub fn list_all(paths: &Paths, source_id: &str) -> Result<Vec<IndexedSkill>> {
     }
     let conn = Connection::open(index_path)?;
     let mut stmt = conn.prepare(
-        "SELECT name, description, tags, path, updated_at, commit_sha, version
+        "SELECT name, description, tags, path, updated_at, commit_sha, content_hash, version
          FROM skills
          ORDER BY updated_at DESC, name ASC",
     )?;
@@ -95,7 +110,8 @@ pub fn list_all(paths: &Paths, source_id: &str) -> Result<Vec<IndexedSkill>> {
             path: row.get(3)?,
             updated_at: row.get(4)?,
             commit: row.get(5)?,
-            version: row.get(6)?,
+            content_hash: row.get(6)?,
+            version: row.get(7)?,
         })
     })?;
 
@@ -113,7 +129,7 @@ pub fn search(paths: &Paths, source_id: &str, query: &str) -> Result<Vec<Indexed
     }
     let conn = Connection::open(index_path)?;
     let mut stmt = conn.prepare(
-        "SELECT s.name, s.description, s.tags, s.path, s.updated_at, s.commit_sha, s.version
+        "SELECT s.name, s.description, s.tags, s.path, s.updated_at, s.commit_sha, s.content_hash, s.version
          FROM skills_fts f
          JOIN skills s ON f.rowid = s.rowid
          WHERE skills_fts MATCH ?1
@@ -128,7 +144,8 @@ pub fn search(paths: &Paths, source_id: &str, query: &str) -> Result<Vec<Indexed
             path: row.get(3)?,
             updated_at: row.get(4)?,
             commit: row.get(5)?,
-            version: row.get(6)?,
+            content_hash: row.get(6)?,
+            version: row.get(7)?,
         })
     })?;
 
