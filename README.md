@@ -95,6 +95,9 @@ brew install skill
 skill browse https://github.com/your-org/skills
 skill browse @your-org --search observability
 
+# Browse installed skills
+skill browse
+
 # Sync updates from a source
 skill sync @your-org
 

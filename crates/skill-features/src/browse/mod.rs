@@ -4,16 +4,19 @@ use std::collections::HashSet;
 
 use skill_core::config::{self, SelectionConfig};
 use skill_core::installer::{InstallTarget, Installer};
+use skill_core::lockfile;
 use skill_core::paths::Paths;
 use skill_core::progress::Reporter;
 use skill_core::source;
 use skill_core::source_index::{self, IndexedSkill};
-use skill_core::ui::browse::{BrowseItem, BrowseSelection};
+use skill_core::ui::browse::{BrowseItem, BrowseMode, BrowseSelection};
 use skill_core::ui::log::LogUi;
+use skill_core::util::remove_dir_if_exists;
+use std::collections::HashMap;
 
 #[derive(Args, Clone, Debug)]
 pub struct BrowseArgs {
-    pub source: String,
+    pub source: Option<String>,
     #[arg(long)]
     pub search: Option<String>,
     #[arg(long, value_delimiter = ',')]
@@ -22,8 +25,12 @@ pub struct BrowseArgs {
 
 pub fn run(paths: &Paths, args: BrowseArgs) -> Result<()> {
     paths.ensure_base_dirs()?;
+    if args.source.is_none() {
+        return show_installed(paths, args.search.as_deref());
+    }
+
     let mut config = config::load(paths)?;
-    let input = args.source;
+    let input = args.source.unwrap_or_default();
     let (mut source_cfg, created) = config::resolve_source(&mut config, &input)?;
     if created {
         config::save(paths, &config)?;
@@ -44,6 +51,7 @@ pub fn run(paths: &Paths, args: BrowseArgs) -> Result<()> {
         return Err(anyhow!("no skills found for selection"));
     }
 
+    let installed_paths = installed_paths(paths, &source_cfg.id)?;
     let items = filtered
         .iter()
         .map(|skill| BrowseItem {
@@ -52,30 +60,39 @@ pub fn run(paths: &Paths, args: BrowseArgs) -> Result<()> {
             updated_at: skill.updated_at.clone(),
             tags: skill.tags.clone(),
             path: skill.path.clone(),
+            installed: installed_paths.contains(&skill.path),
         })
         .collect::<Vec<_>>();
 
-    let (initial_selection, initial_all) = selection_from_config(&source_cfg.selection);
+    let available_paths = items
+        .iter()
+        .map(|item| item.path.clone())
+        .collect::<HashSet<_>>();
+    let initial_selection = selection_from_config(&source_cfg.selection, &available_paths);
     let selection = skill_core::ui::browse::run_browse_ui(
         format!("Browse {}", source_cfg.id),
         &items,
         &initial_selection,
-        initial_all,
         args.search.as_deref(),
+        BrowseMode::Install,
     )?;
 
     let selection = match selection {
         BrowseSelection::Cancel => {
             return Ok(());
         }
-        BrowseSelection::All => {
-            source_cfg.selection = SelectionConfig::All;
-            SelectionConfig::All
-        }
         BrowseSelection::List(paths) => {
-            source_cfg.selection = SelectionConfig::List { skills: paths };
+            let selected: HashSet<_> = paths.iter().cloned().collect();
+            let all_paths: HashSet<_> = all_skills.iter().map(|skill| skill.path.clone()).collect();
+            if selected == all_paths {
+                source_cfg.selection = SelectionConfig::All;
+            } else {
+                source_cfg.selection = SelectionConfig::List { skills: paths };
+            }
             source_cfg.selection.clone()
         }
+        BrowseSelection::All => SelectionConfig::All,
+        BrowseSelection::Delete(_) => return Ok(()),
     };
 
     config::update_source(&mut config, &source_cfg)?;
@@ -119,6 +136,133 @@ pub fn run(paths: &Paths, args: BrowseArgs) -> Result<()> {
     Ok(())
 }
 
+fn show_installed(paths: &Paths, search: Option<&str>) -> Result<()> {
+    let mut config = config::load(paths)?;
+
+    loop {
+        let lockfile = lockfile::load(paths)?;
+        if lockfile.skills.is_empty() {
+            return Err(anyhow!("no installed skills"));
+        }
+
+        let query = search.unwrap_or("").trim().to_lowercase();
+        let mut items = lockfile
+            .skills
+            .iter()
+            .filter(|entry| {
+                if query.is_empty() {
+                    return true;
+                }
+                let name = format!("{}/{}", entry.source_id, entry.name).to_lowercase();
+                name.contains(&query)
+            })
+            .map(|entry| BrowseItem {
+                name: format!("{}/{}", entry.source_id, entry.name),
+                description: String::new(),
+                updated_at: entry.updated_at.clone().unwrap_or_default(),
+                tags: Vec::new(),
+                path: format!("{}/{}", entry.source_id, entry.name),
+                installed: true,
+            })
+            .collect::<Vec<_>>();
+
+        items.sort_by(|a, b| a.name.cmp(&b.name));
+        if items.is_empty() {
+            return Err(anyhow!("no installed skills matched"));
+        }
+
+        let selection = skill_core::ui::browse::run_browse_ui(
+            "Installed skills".to_string(),
+            &items,
+            &HashSet::new(),
+            search,
+            BrowseMode::Installed,
+        )?;
+
+        match selection {
+            BrowseSelection::Cancel => return Ok(()),
+            BrowseSelection::Delete(entries) => {
+                delete_installed(paths, &mut config, entries)?;
+            }
+            _ => return Ok(()),
+        }
+    }
+}
+
+fn delete_installed(paths: &Paths, config: &mut config::Config, keys: Vec<String>) -> Result<()> {
+    if keys.is_empty() {
+        return Ok(());
+    }
+
+    let mut lockfile = lockfile::load(paths)?;
+    let mut removed_paths: HashMap<String, Vec<String>> = HashMap::new();
+
+    for key in keys {
+        let Some((source_id, name)) = parse_installed_key(&key) else {
+            continue;
+        };
+        if let Some(entry) = lockfile::remove(&mut lockfile, &source_id, &name) {
+            remove_dir_if_exists(std::path::Path::new(&entry.install_dir))?;
+            removed_paths
+                .entry(entry.source_id)
+                .or_default()
+                .push(entry.path);
+        }
+    }
+
+    if removed_paths.is_empty() {
+        return Ok(());
+    }
+
+    let remaining_paths =
+        lockfile
+            .skills
+            .iter()
+            .fold(HashMap::<String, Vec<String>>::new(), |mut acc, entry| {
+                acc.entry(entry.source_id.clone())
+                    .or_default()
+                    .push(entry.path.clone());
+                acc
+            });
+
+    for source in &mut config.sources {
+        let Some(removed) = removed_paths.get(&source.id) else {
+            continue;
+        };
+        let remaining = remaining_paths.get(&source.id).cloned().unwrap_or_default();
+        update_selection_after_delete(&mut source.selection, removed, &remaining);
+    }
+
+    lockfile::save(paths, &lockfile)?;
+    config::save(paths, config)?;
+    Ok(())
+}
+
+fn update_selection_after_delete(
+    selection: &mut SelectionConfig,
+    removed_paths: &[String],
+    remaining_paths: &[String],
+) {
+    match selection {
+        SelectionConfig::All => {
+            *selection = SelectionConfig::List {
+                skills: remaining_paths.to_vec(),
+            };
+        }
+        SelectionConfig::List { skills } => {
+            skills.retain(|path| !removed_paths.contains(path));
+        }
+    }
+}
+
+fn parse_installed_key(value: &str) -> Option<(String, String)> {
+    let (source_id, name) = value.split_once('/')?;
+    if source_id.is_empty() || name.is_empty() {
+        return None;
+    }
+    Some((source_id.to_string(), name.to_string()))
+}
+
 fn load_skills(paths: &Paths, source_id: &str, search: Option<&str>) -> Result<Vec<IndexedSkill>> {
     match search {
         Some(query) if !query.trim().is_empty() => source_index::search(paths, source_id, query),
@@ -144,9 +288,26 @@ fn filter_by_tags(skills: Vec<IndexedSkill>, tags: &[String]) -> Vec<IndexedSkil
         .collect()
 }
 
-fn selection_from_config(selection: &SelectionConfig) -> (HashSet<String>, bool) {
+fn selection_from_config(
+    selection: &SelectionConfig,
+    available_paths: &HashSet<String>,
+) -> HashSet<String> {
     match selection {
-        SelectionConfig::All => (HashSet::new(), true),
-        SelectionConfig::List { skills } => (skills.iter().cloned().collect(), false),
+        SelectionConfig::All => available_paths.clone(),
+        SelectionConfig::List { skills } => skills
+            .iter()
+            .filter(|skill| available_paths.contains(*skill))
+            .cloned()
+            .collect(),
     }
+}
+
+fn installed_paths(paths: &Paths, source_id: &str) -> Result<HashSet<String>> {
+    let lockfile = lockfile::load(paths)?;
+    Ok(lockfile
+        .skills
+        .into_iter()
+        .filter(|entry| entry.source_id == source_id)
+        .map(|entry| entry.path)
+        .collect())
 }
