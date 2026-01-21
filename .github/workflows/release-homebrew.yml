@@ -12,7 +12,8 @@ env:
   BINARY_NAME: skill
   FORMULA_NAME: skill
   STRICT_RELEASE: ${{ vars.STRICT_RELEASE }}
-  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  TAP_REPO: philipesteiff/homebrew-tap
+  TAP_BRANCH: main
 
 jobs:
   release-homebrew:
@@ -72,12 +73,16 @@ jobs:
         with:
           files: ${{ env.ARCHIVE }}
 
-      - name: Switch to default branch for tap update
-        run: |
-          git checkout "${DEFAULT_BRANCH}"
-          git pull --ff-only origin "${DEFAULT_BRANCH}"
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TAP_REPO }}
+          ref: ${{ env.TAP_BRANCH }}
+          path: homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Update Homebrew formula
+        working-directory: homebrew-tap
         run: |
           FORMULA_CLASS=$(echo "${FORMULA_NAME}" | awk -F'[-_]' '{for (i=1;i<=NF;i++){printf toupper(substr($i,1,1)) substr($i,2)} }')
           FORMULA_DIR="Formula"
@@ -85,24 +90,29 @@ jobs:
           REPO_SLUG="${GITHUB_REPOSITORY}"
           ASSET_URL="https://github.com/${REPO_SLUG}/releases/download/${TAG}/skill-darwin-${ARCH}.tar.gz"
           mkdir -p "${FORMULA_DIR}"
-          cat > "${FORMULA_PATH}" <<RUBY
-          class ${FORMULA_CLASS} < Formula
-            desc "CLI for managing skills"
-            homepage "https://github.com/${REPO_SLUG}"
-            url "${ASSET_URL}"
-            sha256 "${CHECKSUM}"
-            version "${VERSION}"
+          cat <<RUBY | sed 's/^  //' > "${FORMULA_PATH}"
+            class ${FORMULA_CLASS} < Formula
+              desc "CLI for managing skills"
+              homepage "https://github.com/${REPO_SLUG}"
+              url "${ASSET_URL}"
+              sha256 "${CHECKSUM}"
+              version "${VERSION}"
 
-            def install
-              bin.install "${BINARY_NAME}"
+              def install
+                bin.install "${BINARY_NAME}"
+              end
             end
-          end
           RUBY
 
       - name: Commit and push formula
+        working-directory: homebrew-tap
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "Formula/${FORMULA_NAME}.rb"
+          if git diff --cached --quiet; then
+            echo "No changes to Formula/${FORMULA_NAME}.rb"
+            exit 0
+          fi
           git commit -m "${FORMULA_NAME} ${TAG}"
-          git push
+          git push origin "${TAP_BRANCH}"
