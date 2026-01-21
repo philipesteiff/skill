@@ -32,7 +32,7 @@ Build a `skill` CLI that browses, syncs, and applies Agent Skills stored in GitH
 
 ## Local filesystem layout
 ```
-$HOME/.skills/
+$HOME/.skill/
   sources/<source-id>/
     index.sqlite
     head.txt
@@ -67,7 +67,7 @@ $HOME/.skills/
       "resolved_version": "1.0.0",
       "resolved_commit": "9f3c...",
       "path": "skills/echo-skill",
-      "install_dir": "/home/user/.skills/installed/acme-skills/echo-skill/1.0.0",
+      "install_dir": "/home/user/.skill/installed/acme-skills/echo-skill/1.0.0",
       "updated_at": "2026-01-21"
     }
   ]
