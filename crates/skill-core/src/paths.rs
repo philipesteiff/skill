@@ -14,7 +14,7 @@ impl Paths {
         let base = if let Ok(val) = env::var("SKILLS_HOME") {
             PathBuf::from(val)
         } else if let Ok(home) = env::var("HOME") {
-            PathBuf::from(home).join(".skills")
+            PathBuf::from(home).join(".skill")
         } else {
             return Err(anyhow!("HOME is not set"));
         };

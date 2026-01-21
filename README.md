@@ -18,14 +18,14 @@ flowchart LR
   Source --> Mirror[Local git mirror cache]
   Mirror --> Indexer[Source index]
   Indexer --> Installer[Installer]
-  Installer --> SkillsHome[$HOME/.skills/installed]
+  Installer --> SkillsHome[$HOME/.skill/installed]
 ```
 
 ## Core components (what they do)
 - **Source config**: trusted repo URLs saved locally with selection state.
 - **Source index**: local SQLite index built from scanned `SKILL.md` files for fast browse/search.
 - **Git mirror cache**: local bare mirrors to avoid re-cloning and to keep bandwidth low.
-- **Installer**: extracts a single skill folder at a specific commit and writes it to `$HOME/.skills/installed`.
+- **Installer**: extracts a single skill folder at a specific commit and writes it to `$HOME/.skill/installed`.
 - **Lockfile**: tracks what commit/version was installed and where it lives.
 
 ## End-to-end flow (what happens under the hood)
@@ -34,7 +34,7 @@ flowchart LR
 2) Scan `SKILL.md` files and build the local index if needed.
 3) Show a TUI list; user selects skills or “Install all”.
 4) Extract each selected skill directory at its commit.
-5) Copy into `$HOME/.skills/installed/<source-id>/<name>/<version-or-sha>`.
+5) Copy into `$HOME/.skill/installed/<source-id>/<name>/<version-or-sha>`.
 6) Update `lock.json`.
 
 ### Sync
@@ -51,7 +51,7 @@ If a repo contains multiple skills, the browse UI allows multi-select or “Inst
 
 ## Local data layout
 ```
-$HOME/.skills/
+$HOME/.skill/
   sources/<source-id>/index.sqlite     # per-source index
   sources/<source-id>/head.txt         # last indexed commit
   cache/repos/<slug>.git               # bare mirror cache
@@ -106,7 +106,7 @@ skill apply
 ```
 
 ## Configuration
-- Skills are stored in `$HOME/.skills` by default.
+- Skills are stored in `$HOME/.skill` by default.
 - Override the base path with `SKILLS_HOME`.
 
 ## Playground (offline, realistic testing)
