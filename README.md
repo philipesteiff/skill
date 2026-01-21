@@ -28,6 +28,16 @@ From source (any OS with Rust):
 cargo install --git https://github.com/philipesteiff/skill --locked --bin skill
 ```
 
+## Screenshots
+Browse skills:
+![Browse skills TUI](docs/screenshots/browse.png)
+
+Choose targets:
+![Apply skills TUI](docs/screenshots/apply.png)
+
+Apply skills:
+![Select targets TUI](docs/screenshots/apply_selection.png)
+
 ## Usage
 Browse a repo and install skills:
 ```bash
