@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use skill_core::config::{self, SelectionConfig};
 use skill_core::installer::{InstallTarget, Installer};
 use skill_core::lockfile;
+use skill_core::output::Output;
 use skill_core::paths::Paths;
 use skill_core::progress::Reporter;
 use skill_core::source;
@@ -26,18 +27,29 @@ pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
     }
 
     let mut log_ui = LogUi::new(format!("skill sync {input}"))?;
-    let result = source::ensure_index(paths, &source_cfg, &mut log_ui);
-    let finish = log_ui.finish();
-    let _head = result?;
-    finish?;
+    if let Err(err) = source::ensure_index(paths, &source_cfg, &mut log_ui) {
+        log_ui.finish()?;
+        return Err(err);
+    }
 
     let skills = source_index::list_all(paths, &source_cfg.id)?;
-    let desired = filter_by_selection(&skills, &source_cfg.selection)?;
+    let (desired, missing) = select_skills(&skills, &source_cfg.selection);
     if desired.is_empty() {
+        log_ui.finish()?;
         return Err(anyhow!(
             "no skills selected; run skill browse to choose skills"
         ));
     }
+    if !missing.is_empty() {
+        log_ui.line(format!(
+            "Warning: {} selected skill(s) not found in source",
+            missing.len()
+        ))?;
+        for path in missing {
+            log_ui.line(format!("Missing: {path}"))?;
+        }
+    }
+    log_ui.finish()?;
 
     let lock = lockfile::load(paths)?;
     let installed = lock
@@ -54,7 +66,12 @@ pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
 
     for skill in desired {
         match installed.get(&skill.name) {
-            Some(existing) if existing.resolved_commit == skill.commit => {
+            Some(existing)
+                if existing
+                    .content_hash
+                    .as_deref()
+                    .is_some_and(|hash| hash == skill.content_hash) =>
+            {
                 skipped_count += 1;
             }
             Some(_) => {
@@ -86,22 +103,29 @@ pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
     Ok(())
 }
 
-fn filter_by_selection(
+fn select_skills(
     skills: &[IndexedSkill],
     selection: &SelectionConfig,
-) -> Result<Vec<IndexedSkill>> {
+) -> (Vec<IndexedSkill>, Vec<String>) {
     match selection {
-        SelectionConfig::All => Ok(skills.to_vec()),
+        SelectionConfig::All => (skills.to_vec(), Vec::new()),
         SelectionConfig::List { skills: selected } => {
             if selected.is_empty() {
-                return Ok(Vec::new());
+                return (Vec::new(), Vec::new());
             }
-            let selected: HashSet<&String> = selected.iter().collect();
-            Ok(skills
+            let selected_set: HashSet<&String> = selected.iter().collect();
+            let desired = skills
                 .iter()
-                .filter(|skill| selected.contains(&skill.path))
+                .filter(|skill| selected_set.contains(&skill.path))
                 .cloned()
-                .collect())
+                .collect::<Vec<_>>();
+            let available: HashSet<&String> = skills.iter().map(|skill| &skill.path).collect();
+            let missing = selected
+                .iter()
+                .filter(|path| !available.contains(path))
+                .cloned()
+                .collect();
+            (desired, missing)
         }
     }
 }
@@ -112,6 +136,7 @@ fn to_target(source_cfg: &config::SourceConfig, skill: &IndexedSkill) -> Install
         repo_url: source_cfg.url.clone(),
         path: skill.path.clone(),
         commit: skill.commit.clone(),
+        content_hash: Some(skill.content_hash.clone()),
         expected_name: Some(skill.name.clone()),
         version: skill.version.clone(),
         updated_at: Some(skill.updated_at.clone()),

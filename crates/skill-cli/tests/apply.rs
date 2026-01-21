@@ -22,6 +22,7 @@ fn seed_install(paths: &Path, source_id: &str, name: &str, source: &Path) -> Res
             name: name.to_string(),
             resolved_version: None,
             resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
             path: format!("skills/{name}"),
             install_dir: install_dir.to_string_lossy().to_string(),
             updated_at: None,

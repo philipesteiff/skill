@@ -169,6 +169,18 @@ pub fn show_file(mirror_path: &Path, commit: &str, path: &str) -> Result<String>
     Ok(String::from_utf8(output.stdout)?)
 }
 
+pub fn object_hash(mirror_path: &Path, commit: &str, path: &str) -> Result<String> {
+    run_git(
+        [
+            "-C",
+            mirror_path.to_str().unwrap_or("."),
+            "rev-parse",
+            &format!("{commit}:{path}"),
+        ],
+        None,
+    )
+}
+
 pub fn commit_date_short(mirror_path: &Path, commit: &str) -> Result<String> {
     let output = run_git(
         [
