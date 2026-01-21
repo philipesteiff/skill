@@ -19,13 +19,21 @@ pub struct BrowseItem {
     pub updated_at: String,
     pub tags: Vec<String>,
     pub path: String,
+    pub installed: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum BrowseSelection {
     All,
     List(Vec<String>),
+    Delete(Vec<String>),
     Cancel,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BrowseMode {
+    Install,
+    Installed,
 }
 
 enum InputMode {
@@ -37,15 +45,15 @@ pub fn run_browse_ui(
     title: String,
     items: &[BrowseItem],
     initial_selected: &HashSet<String>,
-    install_all_default: bool,
     initial_query: Option<&str>,
+    mode: BrowseMode,
 ) -> Result<BrowseSelection> {
     if !std::io::stdout().is_terminal() {
         return Err(anyhow!("browse requires an interactive terminal"));
     }
 
     let mut terminal = setup_inline_terminal()?;
-    let mut state = BrowseState::new(items, initial_selected, initial_query, install_all_default);
+    let mut state = BrowseState::new(items, initial_selected, initial_query, mode);
     let result = run_loop(&mut terminal, &title, items, &mut state);
     teardown_terminal(&mut terminal)?;
     println!();
@@ -58,7 +66,7 @@ struct BrowseState {
     selected: HashSet<String>,
     list_state: ListState,
     mode: InputMode,
-    install_all: bool,
+    browse_mode: BrowseMode,
 }
 
 impl BrowseState {
@@ -66,7 +74,7 @@ impl BrowseState {
         items: &[BrowseItem],
         initial_selected: &HashSet<String>,
         initial_query: Option<&str>,
-        install_all: bool,
+        browse_mode: BrowseMode,
     ) -> Self {
         let filter = initial_query.unwrap_or("").to_string();
         let mut state = Self {
@@ -75,7 +83,7 @@ impl BrowseState {
             selected: initial_selected.clone(),
             list_state: ListState::default(),
             mode: InputMode::Normal,
-            install_all,
+            browse_mode,
         };
         state.refresh_filter(items);
         state
@@ -152,14 +160,26 @@ fn run_loop(
                 .highlight_symbol("> ");
             frame.render_stateful_widget(list, chunks[2], &mut state.list_state);
 
-            let footer = Footer::new(vec![
-                ("↑/↓", "move"),
-                ("Space", "select"),
-                ("A", "install all"),
-                ("Enter", "install"),
-                ("/", "search"),
-                ("Esc", "cancel"),
-            ]);
+            let footer = match state.browse_mode {
+                BrowseMode::Installed => Footer::new(vec![
+                    ("↑/↓", "move"),
+                    ("Space", "select"),
+                    ("A", "select all"),
+                    ("R", "unselect all"),
+                    ("Enter", "delete selected"),
+                    ("/", "search"),
+                    ("Esc", "close"),
+                ]),
+                BrowseMode::Install => Footer::new(vec![
+                    ("↑/↓", "move"),
+                    ("Space", "select"),
+                    ("A", "select all"),
+                    ("R", "unselect all"),
+                    ("Enter", "install"),
+                    ("/", "search"),
+                    ("Esc", "cancel"),
+                ]),
+            };
             frame.render_widget(footer, chunks[3]);
         })?;
 
@@ -192,12 +212,6 @@ fn render_search_line(state: &BrowseState) -> Paragraph<'static> {
         InputMode::Normal => Span::from(query).dim(),
     };
     spans.push(query_span);
-    spans.push(Span::from("  ").dim());
-    if state.install_all {
-        spans.push(Span::from("Mode: Install all").style(theme::accent_style()));
-    } else {
-        spans.push(Span::from("Mode: Select").dim());
-    }
     Paragraph::new(Line::from(spans))
 }
 
@@ -209,14 +223,17 @@ fn build_list(items: &[BrowseItem], state: &BrowseState) -> Vec<ListItem<'static
             let item = &items[*idx];
             let selected = state.selected.contains(&item.path);
             let checkbox = if selected { "[x] " } else { "[ ] " };
-            let mut spans = vec![
-                Span::from(checkbox).dim(),
-                Span::from(item.name.clone()).bold(),
-                Span::from(" — ").dim(),
-                Span::from(item.description.clone()),
-            ];
+            let mut spans = vec![Span::from(checkbox).dim()];
+            spans.push(Span::from(item.name.clone()).bold());
+            if !item.description.is_empty() {
+                spans.push(Span::from(" — ").dim());
+                spans.push(Span::from(item.description.clone()));
+            }
             if !item.updated_at.is_empty() {
                 spans.push(Span::from(format!(" ({})", item.updated_at)).dim());
+            }
+            if item.installed {
+                spans.push(Span::from(" • installed").green());
             }
             if !item.tags.is_empty() {
                 let tag_text = item
@@ -262,20 +279,24 @@ fn handle_normal_mode(
             });
         }
         KeyCode::Char(' ') => {
-            if state.install_all {
-                state.install_all = false;
-            }
             toggle_selected(items, state);
         }
         KeyCode::Char('a') | KeyCode::Char('A') => {
-            state.install_all = !state.install_all;
+            select_all(items, state);
+        }
+        KeyCode::Char('r') | KeyCode::Char('R') => {
+            state.selected.clear();
         }
         KeyCode::Char('/') => {
             state.mode = InputMode::Search;
         }
         KeyCode::Enter => {
-            if state.install_all {
-                return Ok(Some(BrowseSelection::All));
+            if matches!(state.browse_mode, BrowseMode::Installed) {
+                let selected = state.selected_paths();
+                if !selected.is_empty() {
+                    return Ok(Some(BrowseSelection::Delete(selected)));
+                }
+                return Ok(Some(BrowseSelection::Cancel));
             }
             let selected = state.selected_paths();
             if selected.is_empty() {
@@ -329,4 +350,8 @@ fn toggle_selected(items: &[BrowseItem], state: &mut BrowseState) {
     } else {
         state.selected.insert(item.path.clone());
     }
+}
+
+fn select_all(items: &[BrowseItem], state: &mut BrowseState) {
+    state.selected = items.iter().map(|item| item.path.clone()).collect();
 }

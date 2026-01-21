@@ -21,7 +21,7 @@ Build a `skill` CLI that browses, syncs, and applies Agent Skills stored in GitH
 4) Browse a large community repo with search/filter.
 
 ## CLI surface
-- `skill browse <repo|@source> [--search <term>] [--tags <tag>]`
+- `skill browse [<repo|@source>] [--search <term>] [--tags <tag>]`
 - `skill sync <repo|@source>`
 - `skill apply`
 
