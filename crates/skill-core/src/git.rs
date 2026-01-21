@@ -169,6 +169,55 @@ pub fn show_file(mirror_path: &Path, commit: &str, path: &str) -> Result<String>
     Ok(String::from_utf8(output.stdout)?)
 }
 
+pub fn commit_date_short(mirror_path: &Path, commit: &str) -> Result<String> {
+    let output = run_git(
+        [
+            "-C",
+            mirror_path.to_str().unwrap_or("."),
+            "log",
+            "-1",
+            "--format=%ad",
+            "--date=short",
+            commit,
+        ],
+        None,
+    )?;
+    Ok(output)
+}
+
+pub fn last_commit_and_date(
+    mirror_path: &Path,
+    commit: &str,
+    path: &str,
+) -> Result<(String, String)> {
+    let output = run_git(
+        [
+            "-C",
+            mirror_path.to_str().unwrap_or("."),
+            "log",
+            "-1",
+            "--format=%H|%ad",
+            "--date=short",
+            commit,
+            "--",
+            path,
+        ],
+        None,
+    )?;
+    let mut parts = output.split('|');
+    let commit = parts
+        .next()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("unable to parse log output"))?;
+    let date = parts
+        .next()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("unable to parse log date output"))?;
+    Ok((commit, date))
+}
+
 pub fn archive_path(mirror_path: &Path, commit: &str, path: &str, dest_dir: &Path) -> Result<()> {
     let output = Command::new("git")
         .args([

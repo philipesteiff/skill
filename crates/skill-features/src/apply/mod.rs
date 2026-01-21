@@ -44,15 +44,15 @@ pub fn run(paths: &Paths, args: ApplyArgs) -> Result<()> {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct SkillKey {
-    pub namespace: String,
+    pub source_id: String,
     pub name: String,
 }
 
 impl SkillKey {
     pub fn label(&self) -> String {
-        let namespace = &self.namespace;
+        let source_id = &self.source_id;
         let name = &self.name;
-        format!("{namespace}/{name}")
+        format!("{source_id}/{name}")
     }
 }
 
@@ -95,7 +95,7 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
         .map(|entry| {
             let source_dir = PathBuf::from(entry.install_dir);
             let key = SkillKey {
-                namespace: entry.namespace,
+                source_id: entry.source_id,
                 name: entry.name,
             };
             let source_exists = source_dir.exists();
@@ -260,7 +260,7 @@ fn parse_skill(value: &str, skills: &[ApplySkill]) -> Result<SkillKey> {
         return Err(anyhow::anyhow!("invalid skill reference: {}", value));
     }
     let key = SkillKey {
-        namespace: parts[0].to_string(),
+        source_id: parts[0].to_string(),
         name: parts[1].to_string(),
     };
     if !skills.iter().any(|skill| skill.key == key) {
@@ -287,7 +287,7 @@ fn compute_applied(
 fn dest_dir(target: &AgentTarget, skill: &SkillKey) -> PathBuf {
     target
         .base_dir
-        .join(format!("{}__{}", skill.namespace, skill.name))
+        .join(format!("{}__{}", skill.source_id, skill.name))
 }
 
 struct ApplyAction {

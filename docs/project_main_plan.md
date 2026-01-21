@@ -1,175 +1,90 @@
 # Project Main Plan
 
 ## Purpose
-Build a `skill` CLI that installs and updates Agent Skills stored in GitHub repos. The CLI is GitHub-only, uses a lightweight metadata registry, and pins every install to a commit SHA for reproducibility.
+Build a `skill` CLI that browses, syncs, and applies Agent Skills stored in GitHub repos. The CLI is GitHub-only, uses per-source indexing, and pins installs to commit SHAs for reproducibility.
 
 ## Goals
-- KISS UX: `search`, `install`, `upgrade`, `remove`, `list` are the daily commands.
-- GitHub-only distribution with an optional metadata registry repo.
-- Bandwidth-safe operations (cache, fetch only required SHAs, sparse checkout).
+- KISS UX: `browse`, `sync`, `apply` are the only commands.
+- GitHub-only distribution with local indexing.
+- Bandwidth-safe operations (mirror cache, fetch only required SHAs).
 - Works with public and private repos using existing git credentials.
 
 ## Non-goals
-- Hosting a custom registry service or package server.
-- Implementing a separate auth system or token store.
+- A separate registry service.
+- Hosting a package server.
 - Supporting non-GitHub git hosts in v1.
 
-## Policy and spec compliance
-- GitHub acceptable use: avoid excessive bandwidth; do not clone whole repos when a single skill path is needed.
-- GitHub API usage: no polling, serialize mutating calls, backoff on rate limits.
-- Agent Skills spec: `SKILL.md` with YAML frontmatter containing `name` and `description`; `name` matches the directory and is lowercase alnum + hyphens; metadata fields (version, tags, author) are allowed. Only load full `SKILL.md` bodies when a skill is activated (progressive disclosure).
-
 ## User scenarios (acceptance tests)
-A. Install CLI via `curl` or Homebrew and run `skill` from PATH.
-B. Search then install from registry: `skill search aws-lambda` -> `skill install aws/skills/aws-lambda`.
-C. Install from private GitHub with existing credentials: `skill install my-private-repo/skill-a`.
-D. Upgrade all `@latest` installs: `skill upgrade`.
-E. Remove a skill: `skill remove aws/skills/aws-lambda` or `skill remove --all`.
+1) Browse a repo and install one skill.
+2) Browse a repo and install all skills.
+3) Sync a trusted company repo to keep skills updated.
+4) Browse a large community repo with search/filter.
 
-## CLI surface (v1)
-- `skill search <query>`: search registry index.
-- `skill install <ref>[@latest|@<version>]`: install a skill.
-- `skill install`: install skills listed in `skills.toml` in the current directory.
-- `skill upgrade`: refresh all skills installed with `@latest`.
-- `skill remove <ref>`: remove installed skill and lock entry.
-- `skill remove --all`: uninstall all skills and clear the lock.
-- `skill list`: list installed skills.
-- `skill add-registry <git-url>`: add a registry repo.
-- `skill sync`: update registry index.
+## CLI surface
+- `skill browse <repo|@source> [--search <term>] [--tags <tag>]`
+- `skill sync <repo|@source>`
+- `skill apply`
 
-Example:
-```bash
-skill search aws-lambda
-skill install aws/skills/aws-lambda@latest
-skill upgrade
-skill remove aws/skills/aws-lambda
-skill remove --all
-```
-
-## Reference formats
-Support exactly three ref forms:
-1. Registry ref: `namespace/name/path[@latest|@1.2.0]`
-2. GitHub shorthand: `owner/repo/skill-name[@latest]`
-3. Full git URL: `https://github.com/owner/repo.git#path/to/skill[@latest]`
-
-If a repo contains multiple skills and the ref does not specify a path, install all skills and print the list. Provide `--pick` for interactive selection.
+### Source formats
+1. GitHub URL: `https://github.com/owner/repo`
+2. GitHub shorthand: `owner/repo`
+3. Saved source: `@source-id`
 
 ## Local filesystem layout
 ```
 $HOME/.skills/
-  registry/
-    <registry-id>/
-      repo/              # cloned metadata repo
-      index.sqlite       # SQLite FTS index
-      head.txt           # last synced commit
+  sources/<source-id>/
+    index.sqlite
+    head.txt
   cache/
-    repos/
-      github.com__owner__repo.git   # bare mirror cache
+    repos/<slug>.git
   installed/
-    <namespace>/
-      <skill-name>/
-        <version-or-latest>/
-          SKILL.md
-          scripts/...
-          references/...
-          assets/...
+    <source-id>/<name>/<version-or-sha>/
   lock.json
 ```
 
 ## Data formats
-### Lockfile (lock.json)
-- Records requested selector, resolved version, commit SHA, and source location.
-- One entry per installed skill.
-
-Example:
+### Config (config.json)
 ```json
 {
-  "skills": [
+  "sources": [
     {
-      "namespace": "aws",
-      "name": "aws-lambda",
-      "requested": "@latest",
-      "resolved_version": "1.2.0",
-      "resolved_commit": "9f3c...",
-      "repo_url": "https://github.com/aws/skills.git",
-      "path": "skills/aws-lambda"
+      "id": "acme-skills",
+      "url": "https://github.com/acme/skills.git",
+      "selection": { "mode": "all" }
     }
   ]
 }
 ```
 
-### Registry metadata (per-skill JSON)
-Stored at `skills/<namespace>/<name>.json` inside the registry repo.
-
-Example:
+### Lockfile (lock.json)
 ```json
 {
-  "namespace": "aws",
-  "name": "aws-lambda",
-  "description": "Deploy and manage AWS Lambda with IaC patterns",
-  "repo_url": "https://github.com/aws/skills.git",
-  "path": "skills/aws-lambda",
-  "tags": ["aws", "lambda"],
-  "latest": { "version": "1.2.0", "commit": "9f3c..." },
-  "versions": [
-    { "version": "1.2.0", "commit": "9f3c..." }
+  "skills": [
+    {
+      "source_id": "acme-skills",
+      "name": "echo-skill",
+      "resolved_version": "1.0.0",
+      "resolved_commit": "9f3c...",
+      "path": "skills/echo-skill",
+      "install_dir": "/home/user/.skills/installed/acme-skills/echo-skill/1.0.0",
+      "updated_at": "2026-01-21"
+    }
   ]
 }
 ```
 
-### Search index
-Use SQLite FTS5 over `name`, `description`, and `tags`. Rebuild `index.sqlite` on registry HEAD change.
-
 ## Core flows
-### Registry sync
-1. `git fetch` registry repo.
-2. If HEAD changed, rebuild `index.sqlite` from JSON files.
+### Browse
+1. Resolve the repo or source.
+2. Scan `SKILL.md` files and rebuild the index if needed.
+3. Show a TUI list with search/filter.
+4. Install selected skills and persist selection state.
 
-### Install algorithm
-1. Resolve ref to `(repo_url, path, commit_sha)` using registry data or repo HEAD.
-2. Fetch the SHA into a bare mirror cache.
-3. Use sparse checkout for `path` only.
-4. Validate `SKILL.md` frontmatter and directory name.
-5. Copy the skill directory into `$HOME/.skills/installed/...`.
-6. Write/update `lock.json`.
+### Sync
+1. Fetch latest repo head and rebuild index if changed.
+2. Install missing skills and update changed ones.
 
-### Upgrade
-- For each lock entry with `requested == @latest`, resolve the newest commit from the registry and reinstall if different.
-
-### Remove
-- Delete the installed directory and remove the lock entry. Keep cached mirrors unless `skill prune-cache` is added later.
-
-## Auth and private repos
-All git operations go through the system `git` binary so SSH agents, credential helpers, and `gh auth` work. If a fetch fails, print a single actionable hint (e.g., "Ensure `git clone <repo>` works in this terminal").
-
-## Implementation approach (Rust)
-- CLI: `clap`.
-- Frontmatter parsing: `serde_yaml` with a small frontmatter splitter.
-- JSON: `serde_json`.
-- SQLite FTS: `rusqlite` (FTS5 enabled).
-- FS and temp: `walkdir`, `tempfile`.
-- Errors: `thiserror`, `anyhow`.
-- Git: shell out to `git` CLI for consistency with user auth.
-
-## Testing strategy
-- Unit tests: ref parsing, frontmatter validation, lockfile read/write.
-- Integration tests: install/upgrade/remove using local git fixtures (no network).
-- Search tests: build index from fixture metadata and assert queries.
-
-## Milestones
-### Milestone 1: CLI skeleton + local install
-- Command parsing and config paths.
-- Direct GitHub install with commit pinning.
-- Lockfile create/update.
-
-### Milestone 2: Registry sync + search
-- Registry repo clone/update.
-- JSON ingestion + SQLite FTS index.
-- `skill search` and `skill list`.
-
-### Milestone 3: Upgrade + remove
-- `skill upgrade` using registry latest.
-- `skill remove` and lock maintenance.
-
-### Milestone 4: Packaging
-- Release packaging (tarballs, brew formula, install script).
+### Apply
+1. Discover installed skills from the lockfile.
+2. Apply to agent targets via TUI or CLI.

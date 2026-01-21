@@ -23,7 +23,7 @@ impl Paths {
 
     pub fn ensure_base_dirs(&self) -> Result<()> {
         crate::util::ensure_dir(&self.base)?;
-        crate::util::ensure_dir(&self.base.join("registry"))?;
+        crate::util::ensure_dir(&self.base.join("sources"))?;
         crate::util::ensure_dir(&self.base.join("cache"))?;
         crate::util::ensure_dir(&self.cache_dir())?;
         crate::util::ensure_dir(&self.installed_dir())?;
@@ -38,20 +38,20 @@ impl Paths {
         self.base.join("lock.json")
     }
 
-    pub fn registry_dir(&self, id: &str) -> PathBuf {
-        self.base.join("registry").join(id)
+    pub fn sources_dir(&self) -> PathBuf {
+        self.base.join("sources")
     }
 
-    pub fn registry_repo_dir(&self, id: &str) -> PathBuf {
-        self.registry_dir(id).join("repo")
+    pub fn source_dir(&self, id: &str) -> PathBuf {
+        self.sources_dir().join(id)
     }
 
-    pub fn registry_index_path(&self, id: &str) -> PathBuf {
-        self.registry_dir(id).join("index.sqlite")
+    pub fn source_index_path(&self, id: &str) -> PathBuf {
+        self.source_dir(id).join("index.sqlite")
     }
 
-    pub fn registry_head_path(&self, id: &str) -> PathBuf {
-        self.registry_dir(id).join("head.txt")
+    pub fn source_head_path(&self, id: &str) -> PathBuf {
+        self.source_dir(id).join("head.txt")
     }
 
     pub fn cache_dir(&self) -> PathBuf {

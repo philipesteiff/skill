@@ -1,11 +1,11 @@
 # skill
 
-A GitHub-only CLI for installing, updating, and applying Agent Skills (`SKILL.md`) with optional registry indexing. Installs are pinned to commit SHAs for reproducibility.
+A GitHub-only CLI for browsing, syncing, and applying Agent Skills (`SKILL.md`). Installs are pinned to commit SHAs for reproducibility.
 
 ## 10-minute mental model
 Think of the tool as three simple loops:
-1) **Find** skills: a registry repo provides lightweight metadata for fast search.
-2) **Fetch** skills: the CLI resolves a reference to a repo + path + commit, then copies that folder locally.
+1) **Browse** a repo: discover skills and select what to install.
+2) **Sync** a source: install missing skills and update existing ones.
 3) **Apply** skills: copy installed skills into agent-specific directories (TUI or CLI).
 
 Everything lives in git. There is no central service.
@@ -14,57 +14,48 @@ Everything lives in git. There is no central service.
 ```mermaid
 flowchart LR
   CLI[skill CLI]
-  CLI -->|search| RegistryIndex[(Registry index)]
-  CLI -->|install| Resolver[Reference resolver]
-  Resolver -->|registry| RegistryRepo[Registry repo]
-  Resolver -->|git| SkillRepo[Skill repo]
-  SkillRepo --> Mirror[Local git mirror cache]
-  Mirror --> Installer[Installer]
+  CLI -->|browse/sync| Source[Source resolver]
+  Source --> Mirror[Local git mirror cache]
+  Mirror --> Indexer[Source index]
+  Indexer --> Installer[Installer]
   Installer --> SkillsHome[$HOME/.skills/installed]
 ```
 
 ## Core components (what they do)
-- **Registry repo**: stores metadata JSON only (name/description/tags/version/commit/path). No `SKILL.md` bodies.
-- **Registry index**: local SQLite index built from registry JSON files for fast offline search.
-- **Resolver**: parses user refs (registry ref, GitHub shorthand, or git URL) and resolves to a commit + path.
+- **Source config**: trusted repo URLs saved locally with selection state.
+- **Source index**: local SQLite index built from scanned `SKILL.md` files for fast browse/search.
 - **Git mirror cache**: local bare mirrors to avoid re-cloning and to keep bandwidth low.
 - **Installer**: extracts a single skill folder at a specific commit and writes it to `$HOME/.skills/installed`.
-- **Lockfile**: tracks what was requested and what commit/version was installed.
+- **Lockfile**: tracks what commit/version was installed and where it lives.
 
 ## End-to-end flow (what happens under the hood)
-### Search
-1) `skill search <query>` hits the local registry index.
-2) Results are printed; nothing is downloaded.
-
-### Install
-1) Parse the ref and resolve to `(repo_url, path, commit)`.
-2) Fetch the commit into the local mirror (no full clone).
-3) Extract only the skill directory.
-4) Validate `SKILL.md` frontmatter (name, description, and directory match).
-5) Copy the skill into `$HOME/.skills/installed/<namespace>/<name>/<version-or-latest>`.
+### Browse
+1) Resolve the repo URL (first browse implicitly trusts the source).
+2) Scan `SKILL.md` files and build the local index if needed.
+3) Show a TUI list; user selects skills or “Install all”.
+4) Extract each selected skill directory at its commit.
+5) Copy into `$HOME/.skills/installed/<source-id>/<name>/<version-or-sha>`.
 6) Update `lock.json`.
 
-### Upgrade
-1) Sync registries (if configured).
-2) For each `@latest` entry in `lock.json`, resolve the newest commit.
-3) Reinstall if the commit changed.
+### Sync
+1) Fetch latest repo HEAD and rebuild the index if it changed.
+2) Install missing skills and update changed skills from this source.
 
-## Reference formats
+## Source formats
 ```text
-registry: namespace/name/path[@latest|@1.2.0]
-github:   owner/repo/skill-name[@latest]
-git url:  https://github.com/owner/repo.git#path/to/skill[@latest]
+repo url: https://github.com/owner/repo
+shorthand: owner/repo
+saved id: @source-id
 ```
-If a repo contains multiple skills and no path is provided, the CLI can install all or use `--pick` for a TUI selection.
+If a repo contains multiple skills, the browse UI allows multi-select or “Install all”.
 
 ## Local data layout
 ```
 $HOME/.skills/
-  registry/<registry-id>/repo/         # cloned registry repo
-  registry/<registry-id>/index.sqlite  # search index
-  registry/<registry-id>/head.txt      # last indexed commit
+  sources/<source-id>/index.sqlite     # per-source index
+  sources/<source-id>/head.txt         # last indexed commit
   cache/repos/<slug>.git               # bare mirror cache
-  installed/<namespace>/<name>/<ver>/  # installed skill folders
+  installed/<source-id>/<name>/<ver>/  # installed skill folders
   lock.json
 ```
 
@@ -73,7 +64,7 @@ $HOME/.skills/
 - `name` (lowercase, hyphenated, matches folder name)
 - `description`
 Optional `metadata` can include `version`, `tags`, and `namespace`.
-Invalid skills are skipped during repo installs and reported in the install logs/TUI.
+Invalid skills are skipped during repo scans and reported in the logs/TUI.
 
 ## Installation
 macOS (curl installer):
@@ -100,35 +91,15 @@ brew install skill
 
 ## Usage
 ```bash
-# Add a registry repo and sync
-skill add-registry https://github.com/your-org/skills-registry.git
-skill sync
+# Browse and install
+skill browse https://github.com/your-org/skills
+skill browse @your-org --search observability
 
-# Search and install
-skill search aws-lambda
-skill install aws/skills/aws-lambda
-
-# Install dependencies from skills.toml in the current directory
-skill install
-
-# Install with TUI picker when multiple skills exist
-skill install owner/repo --pick
-
-# Upgrade/remove/list
-skill upgrade
-skill remove aws/skills/aws-lambda
-skill remove --all
-skill list
+# Sync updates from a source
+skill sync @your-org
 
 # Apply installed skills to agent directories (TUI)
 skill apply
-```
-
-`skills.toml` format:
-```toml
-[dependencies]
-aws-lambda = "aws/skills/aws-lambda@latest"
-notes = { ref = "owner/repo/notes-skill", registry = "https://github.com/your-org/skills-registry.git" }
 ```
 
 ## Configuration
@@ -139,10 +110,8 @@ notes = { ref = "owner/repo/notes-skill", registry = "https://github.com/your-or
 ```bash
 just playground
 export SKILLS_HOME=playground/work/home
-skill add-registry file://$PWD/playground/work/skills-registry
-skill sync
-skill search echo
-skill install acme/notes-skill
+skill browse https://github.com/acme/skills
+skill sync @acme-skills
 ```
 
 ## Development
