@@ -37,16 +37,22 @@ fn run_apply_loop(
     applied: &HashMap<(SkillKey, TargetKey), bool>,
 ) -> Result<Option<ApplySelection>> {
     let mut step = Step::Targets;
+    // Single target selection
+    let mut selected_target: Option<TargetKey> = targets
+        .iter()
+        .find(|target| target.default_selected)
+        .map(|target| target.key.clone());
+
     let mut target_state = ListState::default();
-    target_state.select(Some(0));
+    let initial_index = targets
+        .iter()
+        .position(|t| Some(&t.key) == selected_target.as_ref())
+        .unwrap_or(0);
+    target_state.select(Some(initial_index));
+
     let mut skill_state = ListState::default();
     skill_state.select(Some(0));
-
-    let mut selected_targets = targets
-        .iter()
-        .filter(|target| target.default_selected)
-        .map(|target| target.key.clone())
-        .collect::<HashSet<_>>();
+        
     let mut selected_skills = HashSet::new();
 
     loop {
@@ -54,14 +60,13 @@ fn run_apply_loop(
             let area = safe_area(frame.area());
             match step {
                 Step::Targets => {
-                    render_targets(frame, area, targets, &selected_targets, &target_state);
+                    render_targets(frame, area, targets, &selected_target, &target_state);
                 }
                 Step::Skills => {
                     let context = SkillsRenderContext {
-                        targets,
+                        target: selected_target.as_ref().expect("target must be selected in skills step"),
                         skills,
                         applied,
-                        selected_targets: &selected_targets,
                         selected_skills: &selected_skills,
                         state: &skill_state,
                     };
@@ -76,29 +81,27 @@ fn run_apply_loop(
             match step {
                 Step::Targets => {
                     if handle_list_keys(&mut target_state, targets.len(), key.code) {
+                        if let Some(idx) = target_state.selected() {
+                           if let Some(target) = targets.get(idx) {
+                               if target.enabled {
+                                   selected_target = Some(target.key.clone());
+                               } else {
+                                   selected_target = None;
+                               }
+                           }
+                        }
                         continue;
                     }
                     match key.code {
-                        KeyCode::Char(' ') => {
-                            toggle_target(targets, &mut selected_targets, &target_state);
-                        }
-                        KeyCode::Char('a') => {
-                            selected_targets = targets
-                                .iter()
-                                .filter(|target| target.enabled)
-                                .map(|target| target.key.clone())
-                                .collect();
-                        }
-                        KeyCode::Char('n') => {
-                            selected_targets.clear();
-                        }
                         KeyCode::Enter => {
-                            if selected_targets.is_empty() {
+                            if selected_target.is_none() {
                                 continue;
                             }
+                            // Initialize skills based on the single selected target
                             if selected_skills.is_empty() {
-                                selected_skills =
-                                    default_skill_selection(skills, &selected_targets, applied);
+                                if let Some(target_key) = &selected_target {
+                                    selected_skills = default_skill_selection(skills, target_key, applied);
+                                }
                             }
                             step = Step::Skills;
                         }
@@ -126,11 +129,12 @@ fn run_apply_loop(
                         }
                         KeyCode::Enter => {
                             return Ok(Some(ApplySelection {
-                                targets: selected_targets.iter().cloned().collect(),
+                                targets: selected_target.iter().cloned().collect(),
                                 skills: selected_skills.iter().cloned().collect(),
                             }));
                         }
                         KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Esc => {
+                            selected_skills.clear();
                             step = Step::Targets;
                         }
                         KeyCode::Char('q') => return Ok(None),
@@ -164,23 +168,6 @@ fn handle_list_keys(state: &mut ListState, len: usize, key: KeyCode) -> bool {
     }
 }
 
-fn toggle_target(targets: &[AgentTarget], selected: &mut HashSet<TargetKey>, state: &ListState) {
-    let Some(idx) = state.selected() else {
-        return;
-    };
-    let Some(target) = targets.get(idx) else {
-        return;
-    };
-    if !target.enabled {
-        return;
-    }
-    if selected.contains(&target.key) {
-        selected.remove(&target.key);
-    } else {
-        selected.insert(target.key.clone());
-    }
-}
-
 fn toggle_skill(skills: &[ApplySkill], selected: &mut HashSet<SkillKey>, state: &ListState) {
     let Some(idx) = state.selected() else {
         return;
@@ -200,18 +187,15 @@ fn toggle_skill(skills: &[ApplySkill], selected: &mut HashSet<SkillKey>, state: 
 
 fn default_skill_selection(
     skills: &[ApplySkill],
-    targets: &HashSet<TargetKey>,
+    target_key: &TargetKey,
     applied: &HashMap<(SkillKey, TargetKey), bool>,
 ) -> HashSet<SkillKey> {
     let mut selected = HashSet::new();
     for skill in skills {
-        let already = targets.iter().any(|target| {
-            let target_key: TargetKey = target.clone();
-            applied
-                .get(&(skill.key.clone(), target_key))
-                .copied()
-                .unwrap_or(false)
-        });
+        let already = applied
+            .get(&(skill.key.clone(), target_key.clone()))
+            .copied()
+            .unwrap_or(false);
         if already {
             selected.insert(skill.key.clone());
         }
@@ -223,7 +207,7 @@ fn render_targets(
     frame: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
     targets: &[AgentTarget],
-    selected_targets: &HashSet<TargetKey>,
+    selected_target: &Option<TargetKey>,
     state: &ListState,
 ) {
     let chunks = Layout::default()
@@ -244,7 +228,7 @@ fn render_targets(
     frame.render_widget(header, chunks[0]);
 
     let description = Paragraph::new(vec![
-        Line::from(Span::from("Select agent scopes to apply skills to.").dim()),
+        Line::from(Span::from("Select an agent scope to apply skills to.").dim()), // Updated text
         Line::from(Span::from("Detected agents are marked; unsupported options are dimmed.").dim()),
     ])
     .alignment(Alignment::Left)
@@ -253,10 +237,8 @@ fn render_targets(
 
     let footer = Footer::new(vec![
         ("Up/Down", "move"),
-        ("Space", "toggle"),
-        ("a", "all"),
-        ("n", "none"),
-        ("Enter", "next"),
+        // Removed toggle/all/none
+        ("Enter", "select"),
         ("Esc/q", "cancel"),
     ]);
     frame.render_widget(footer, chunks[4]);
@@ -264,13 +246,12 @@ fn render_targets(
     let list_items = targets
         .iter()
         .map(|target| {
-            let checked = if selected_targets.contains(&target.key) {
-                "[x]"
-            } else {
-                "[ ]"
-            };
+            // Radio button style: ( ) or (*)
+            let is_selected = selected_target.as_ref() == Some(&target.key);
+            let marker = if is_selected { "(*)" } else { "( )" };
+
             let mut spans = vec![
-                Span::from(checked),
+                Span::from(marker),
                 " ".into(),
                 Span::from(target.label.clone()),
                 " ".into(),
@@ -309,10 +290,9 @@ fn render_targets(
 }
 
 struct SkillsRenderContext<'a> {
-    targets: &'a [AgentTarget],
+    target: &'a TargetKey,
     skills: &'a [ApplySkill],
     applied: &'a HashMap<(SkillKey, TargetKey), bool>,
-    selected_targets: &'a HashSet<TargetKey>,
     selected_skills: &'a HashSet<SkillKey>,
     state: &'a ListState,
 }
@@ -342,22 +322,11 @@ fn render_skills(
 
     let stats = Paragraph::new(Line::from(vec![
         Span::from("Applying to: ").dim(),
-        Span::from(
-            context
-                .targets
-                .iter()
-                .filter(|t| context.selected_targets.contains(&t.key))
-                .map(|t| format!("{} <{}>", t.label, t.base_dir.display()))
-                .collect::<Vec<_>>()
-                .join(", "),
-        )
-        .style(theme::accent_style()),
+        Span::from(format!("{:?}", context.target)).style(theme::accent_style()), // TargetKey is Debug
     ]))
     .alignment(Alignment::Left)
     .wrap(Wrap { trim: false });
     frame.render_widget(stats, chunks[1]);
-
-    // Old warning replaced by inline status
 
     let footer = Footer::new(vec![
         ("Up/Down", "move"),
@@ -365,7 +334,7 @@ fn render_skills(
         ("a", "all"),
         ("n", "none"),
         ("b", "back"),
-        ("Enter", "next"),
+        ("Enter", "apply"),
     ]);
     frame.render_widget(footer, chunks[5]);
 
@@ -384,41 +353,25 @@ fn render_skills(
                 spans.push(" ".into());
                 spans.push(Span::from("missing source").dim());
             }
-            // Status logic
-            let currently_installed_count = context
-                .selected_targets
-                .iter()
-                .filter(|target_key| {
-                    context
-                        .applied
-                        .get(&(skill.key.clone(), (*target_key).clone()))
-                        .copied()
-                        .unwrap_or(false)
-                })
-                .count();
-            let target_count = context.selected_targets.len();
+            
+            let is_installed = context.applied
+                .get(&(skill.key.clone(), context.target.clone()))
+                .copied()
+                .unwrap_or(false);
 
             if is_selected {
-                if currently_installed_count == target_count {
+                if is_installed {
                     spans.push(" ".into());
-                    // spans.push(Span::from("(Installed)").style(theme::success_style()));
                     spans.push(Span::from("(Installed)").dim());
-                } else if currently_installed_count == 0 {
+                } else {
                     spans.push(" ".into());
                     spans.push(
                         Span::from("(Will Install)")
                             .style(theme::success_style())
                             .bold(),
                     );
-                } else {
-                    spans.push(" ".into());
-                    spans.push(
-                        Span::from("(Will Update)")
-                            .style(theme::success_style())
-                            .bold(),
-                    );
                 }
-            } else if currently_installed_count > 0 {
+            } else if is_installed {
                 spans.push(" ".into());
                 spans.push(
                     Span::from("(Will Remove)")
@@ -441,6 +394,8 @@ fn render_skills(
             .add_modifier(Modifier::BOLD)
             .add_modifier(Modifier::REVERSED),
     );
+
     let mut state = *context.state;
     frame.render_stateful_widget(list, chunks[3], &mut state);
 }
+
