@@ -52,7 +52,7 @@ fn run_apply_loop(
 
     let mut skill_state = ListState::default();
     skill_state.select(Some(0));
-        
+
     let mut selected_skills = HashSet::new();
 
     loop {
@@ -64,7 +64,9 @@ fn run_apply_loop(
                 }
                 Step::Skills => {
                     let context = SkillsRenderContext {
-                        target: selected_target.as_ref().expect("target must be selected in skills step"),
+                        target: selected_target
+                            .as_ref()
+                            .expect("target must be selected in skills step"),
                         skills,
                         applied,
                         selected_skills: &selected_skills,
@@ -81,14 +83,14 @@ fn run_apply_loop(
             match step {
                 Step::Targets => {
                     if handle_list_keys(&mut target_state, targets.len(), key.code) {
-                        if let Some(idx) = target_state.selected() {
-                           if let Some(target) = targets.get(idx) {
-                               if target.enabled {
-                                   selected_target = Some(target.key.clone());
-                               } else {
-                                   selected_target = None;
-                               }
-                           }
+                        if let Some(idx) = target_state.selected()
+                            && let Some(target) = targets.get(idx)
+                        {
+                            if target.enabled {
+                                selected_target = Some(target.key.clone());
+                            } else {
+                                selected_target = None;
+                            }
                         }
                         continue;
                     }
@@ -98,10 +100,11 @@ fn run_apply_loop(
                                 continue;
                             }
                             // Initialize skills based on the single selected target
-                            if selected_skills.is_empty() {
-                                if let Some(target_key) = &selected_target {
-                                    selected_skills = default_skill_selection(skills, target_key, applied);
-                                }
+                            if selected_skills.is_empty()
+                                && let Some(target_key) = &selected_target
+                            {
+                                selected_skills =
+                                    default_skill_selection(skills, target_key, applied);
                             }
                             step = Step::Skills;
                         }
@@ -353,8 +356,9 @@ fn render_skills(
                 spans.push(" ".into());
                 spans.push(Span::from("missing source").dim());
             }
-            
-            let is_installed = context.applied
+
+            let is_installed = context
+                .applied
                 .get(&(skill.key.clone(), context.target.clone()))
                 .copied()
                 .unwrap_or(false);
@@ -398,4 +402,3 @@ fn render_skills(
     let mut state = *context.state;
     frame.render_stateful_widget(list, chunks[3], &mut state);
 }
-

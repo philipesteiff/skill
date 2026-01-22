@@ -521,7 +521,7 @@ mod tests {
             enabled: true,
             default_selected: true,
         };
-        let applied = compute_applied(&[skill.clone()], &[target.clone()]);
+        let applied = compute_applied(std::slice::from_ref(&skill), std::slice::from_ref(&target));
         assert_eq!(
             applied
                 .get(&(skill.key.clone(), target.key.clone()))
@@ -584,7 +584,7 @@ mod tests {
         let results = apply_selection(
             ApplyIntent::DesiredState,
             &selection,
-            &[target.clone()],
+            std::slice::from_ref(&target),
             &[selected_skill, removed_skill],
         )?;
 
