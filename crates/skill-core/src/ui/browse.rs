@@ -9,6 +9,7 @@ use std::io::IsTerminal;
 use std::time::Duration;
 
 use crate::ui::components::{Footer, Header};
+use crate::ui::interaction;
 use crate::ui::terminal::{UiTerminal, safe_area, setup_inline_terminal, teardown_terminal};
 use crate::ui::theme;
 
@@ -54,7 +55,11 @@ pub fn run_browse_ui(
 
     let mut terminal = setup_inline_terminal()?;
     let mut state = BrowseState::new(items, initial_selected, initial_query, mode);
-    let result = run_loop(&mut terminal, &title, items, &mut state);
+    let header_title = match mode {
+        BrowseMode::Install => format!("{title} (install)"),
+        BrowseMode::Installed => format!("{title} (uninstall)"),
+    };
+    let result = run_loop(&mut terminal, &header_title, items, &mut state);
     teardown_terminal(&mut terminal)?;
     println!();
     result
@@ -161,24 +166,8 @@ fn run_loop(
             frame.render_stateful_widget(list, chunks[2], &mut state.list_state);
 
             let footer = match state.browse_mode {
-                BrowseMode::Installed => Footer::new(vec![
-                    ("↑/↓", "move"),
-                    ("Space", "select"),
-                    ("A", "select all"),
-                    ("R", "unselect all"),
-                    ("Enter", "delete selected"),
-                    ("/", "search"),
-                    ("Esc", "close"),
-                ]),
-                BrowseMode::Install => Footer::new(vec![
-                    ("↑/↓", "move"),
-                    ("Space", "select"),
-                    ("A", "select all"),
-                    ("R", "unselect all"),
-                    ("Enter", "install"),
-                    ("/", "search"),
-                    ("Esc", "cancel"),
-                ]),
+                BrowseMode::Installed => Footer::new(interaction::browse_footer("uninstall")),
+                BrowseMode::Install => Footer::new(interaction::browse_footer("install")),
             };
             frame.render_widget(footer, chunks[3]);
         })?;
@@ -284,7 +273,7 @@ fn handle_normal_mode(
         KeyCode::Char('a') | KeyCode::Char('A') => {
             select_all(items, state);
         }
-        KeyCode::Char('r') | KeyCode::Char('R') => {
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('r') | KeyCode::Char('R') => {
             state.selected.clear();
         }
         KeyCode::Char('/') => {

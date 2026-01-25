@@ -10,6 +10,7 @@ use std::time::Duration;
 use super::agents::{AgentTarget, Scope, TargetKey};
 use super::{ApplySelection, ApplySkill, SkillKey};
 use skill_core::ui::components::{Footer, Header};
+use skill_core::ui::interaction;
 use skill_core::ui::terminal::{UiTerminal, safe_area, setup_inline_terminal, teardown_terminal};
 use skill_core::ui::theme;
 
@@ -19,13 +20,61 @@ enum Step {
     Skills,
 }
 
+impl Step {
+    fn index(self) -> usize {
+        match self {
+            Step::Targets => 1,
+            Step::Skills => 2,
+        }
+    }
+}
+
+const TOTAL_STEPS: usize = 2;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ApplyUiMode {
+    Apply,
+    Unapply,
+}
+
+impl ApplyUiMode {
+    fn from_unapply(unapply: bool) -> Self {
+        if unapply { Self::Unapply } else { Self::Apply }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Self::Apply => "Apply",
+            Self::Unapply => "Unapply",
+        }
+    }
+
+    fn verb(self) -> &'static str {
+        match self {
+            Self::Apply => "apply",
+            Self::Unapply => "unapply",
+        }
+    }
+
+    fn selection_hint(self) -> &'static str {
+        match self {
+            Self::Apply => {
+                "Selected skills will be applied; unselected applied skills will be unapplied."
+            }
+            Self::Unapply => "Selected skills will be unapplied.",
+        }
+    }
+}
+
 pub(super) fn run_apply_ui(
     targets: &[AgentTarget],
     skills: &[ApplySkill],
     applied: &HashMap<(SkillKey, TargetKey), bool>,
+    unapply: bool,
 ) -> Result<Option<ApplySelection>> {
+    let mode = ApplyUiMode::from_unapply(unapply);
     let mut terminal = setup_inline_terminal()?;
-    let result = run_apply_loop(&mut terminal, targets, skills, applied);
+    let result = run_apply_loop(&mut terminal, targets, skills, applied, mode);
     teardown_terminal(&mut terminal)?;
     result
 }
@@ -35,6 +84,7 @@ fn run_apply_loop(
     targets: &[AgentTarget],
     skills: &[ApplySkill],
     applied: &HashMap<(SkillKey, TargetKey), bool>,
+    mode: ApplyUiMode,
 ) -> Result<Option<ApplySelection>> {
     let mut step = Step::Targets;
     // Single target selection
@@ -60,7 +110,7 @@ fn run_apply_loop(
             let area = safe_area(frame.area());
             match step {
                 Step::Targets => {
-                    render_targets(frame, area, targets, &selected_target, &target_state);
+                    render_targets(frame, area, targets, &selected_target, &target_state, mode);
                 }
                 Step::Skills => {
                     let context = SkillsRenderContext {
@@ -71,6 +121,7 @@ fn run_apply_loop(
                         applied,
                         selected_skills: &selected_skills,
                         state: &skill_state,
+                        mode,
                     };
                     render_skills(frame, area, &context);
                 }
@@ -120,14 +171,14 @@ fn run_apply_loop(
                         KeyCode::Char(' ') => {
                             toggle_skill(skills, &mut selected_skills, &skill_state);
                         }
-                        KeyCode::Char('a') => {
+                        KeyCode::Char('a') | KeyCode::Char('A') => {
                             selected_skills = skills
                                 .iter()
                                 .filter(|skill| skill.source_exists)
                                 .map(|skill| skill.key.clone())
                                 .collect();
                         }
-                        KeyCode::Char('n') => {
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
                             selected_skills.clear();
                         }
                         KeyCode::Enter => {
@@ -136,11 +187,11 @@ fn run_apply_loop(
                                 skills: selected_skills.iter().cloned().collect(),
                             }));
                         }
-                        KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Esc => {
+                        KeyCode::Backspace | KeyCode::Char('b') => {
                             selected_skills.clear();
                             step = Step::Targets;
                         }
-                        KeyCode::Char('q') => return Ok(None),
+                        KeyCode::Esc | KeyCode::Char('q') => return Ok(None),
                         _ => {}
                     }
                 }
@@ -212,6 +263,7 @@ fn render_targets(
     targets: &[AgentTarget],
     selected_target: &Option<TargetKey>,
     state: &ListState,
+    mode: ApplyUiMode,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -227,23 +279,30 @@ fn render_targets(
         )
         .split(area);
 
-    let header = Header::new("Apply skills");
+    let header_title = format!(
+        "{title} skills ({step}/{TOTAL_STEPS})",
+        title = mode.title(),
+        step = Step::Targets.index()
+    );
+    let header = Header::new(&header_title);
     frame.render_widget(header, chunks[0]);
 
     let description = Paragraph::new(vec![
-        Line::from(Span::from("Select an agent scope to apply skills to.").dim()), // Updated text
+        Line::from(
+            Span::from(format!(
+                "Step {step}/{TOTAL_STEPS}: Choose where to {verb} skills.",
+                step = Step::Targets.index(),
+                verb = mode.verb()
+            ))
+            .dim(),
+        ),
         Line::from(Span::from("Detected agents are marked; unsupported options are dimmed.").dim()),
     ])
     .alignment(Alignment::Left)
     .wrap(Wrap { trim: false });
     frame.render_widget(description, chunks[1]);
 
-    let footer = Footer::new(vec![
-        ("Up/Down", "move"),
-        // Removed toggle/all/none
-        ("Enter", "select"),
-        ("Esc/q", "cancel"),
-    ]);
+    let footer = Footer::new(interaction::apply_targets_footer());
     frame.render_widget(footer, chunks[4]);
 
     let list_items = targets
@@ -261,7 +320,7 @@ fn render_targets(
             ];
 
             if target.key.scope == Scope::Global || target.detected {
-                spans.push(Span::from(format!("({})", target.base_dir.display())).dim());
+                spans.push(Span::from(format!("({path})", path = target.base_dir.display())).dim());
             } else {
                 spans.push(Span::from("(skill folder not found)").dim());
             }
@@ -298,6 +357,7 @@ struct SkillsRenderContext<'a> {
     applied: &'a HashMap<(SkillKey, TargetKey), bool>,
     selected_skills: &'a HashSet<SkillKey>,
     state: &'a ListState,
+    mode: ApplyUiMode,
 }
 
 fn render_skills(
@@ -310,7 +370,7 @@ fn render_skills(
         .constraints(
             [
                 Constraint::Length(1), // Header
-                Constraint::Length(1), // Stats
+                Constraint::Length(2), // Stats
                 Constraint::Length(1), // Spacer (Header/List gap)
                 Constraint::Min(1),    // List
                 Constraint::Length(1), // Spacer (List/Footer gap)
@@ -320,25 +380,26 @@ fn render_skills(
         )
         .split(area);
 
-    let header = Header::new("Select skills");
+    let header_title = format!(
+        "{title} skills ({step}/{TOTAL_STEPS})",
+        title = context.mode.title(),
+        step = Step::Skills.index()
+    );
+    let header = Header::new(&header_title);
     frame.render_widget(header, chunks[0]);
 
-    let stats = Paragraph::new(Line::from(vec![
-        Span::from("Applying to: ").dim(),
-        Span::from(format!("{:?}", context.target)).style(theme::accent_style()), // TargetKey is Debug
-    ]))
+    let stats = Paragraph::new(vec![
+        Line::from(vec![
+            Span::from("Target: ").dim(),
+            Span::from(context.target.label()).style(theme::accent_style()),
+        ]),
+        Line::from(Span::from(context.mode.selection_hint()).dim()),
+    ])
     .alignment(Alignment::Left)
     .wrap(Wrap { trim: false });
     frame.render_widget(stats, chunks[1]);
 
-    let footer = Footer::new(vec![
-        ("Up/Down", "move"),
-        ("Space", "toggle"),
-        ("a", "all"),
-        ("n", "none"),
-        ("b", "back"),
-        ("Enter", "apply"),
-    ]);
+    let footer = Footer::new(interaction::apply_skills_footer(context.mode.verb()));
     frame.render_widget(footer, chunks[5]);
 
     let list_items = context
@@ -363,25 +424,9 @@ fn render_skills(
                 .copied()
                 .unwrap_or(false);
 
-            if is_selected {
-                if is_installed {
-                    spans.push(" ".into());
-                    spans.push(Span::from("(Installed)").dim());
-                } else {
-                    spans.push(" ".into());
-                    spans.push(
-                        Span::from("(Will Install)")
-                            .style(theme::success_style())
-                            .bold(),
-                    );
-                }
-            } else if is_installed {
+            if let Some(status) = skill_status_span(context.mode, is_selected, is_installed) {
                 spans.push(" ".into());
-                spans.push(
-                    Span::from("(Will Remove)")
-                        .style(theme::error_style())
-                        .bold(),
-                );
+                spans.push(status);
             }
 
             let line = Line::from(spans);
@@ -401,4 +446,51 @@ fn render_skills(
 
     let mut state = *context.state;
     frame.render_stateful_widget(list, chunks[3], &mut state);
+}
+
+fn skill_status_span(
+    mode: ApplyUiMode,
+    is_selected: bool,
+    is_applied: bool,
+) -> Option<Span<'static>> {
+    match mode {
+        ApplyUiMode::Apply => {
+            if is_selected {
+                if is_applied {
+                    Some(Span::from("(Applied)").dim())
+                } else {
+                    Some(
+                        Span::from("(Will Apply)")
+                            .style(theme::success_style())
+                            .bold(),
+                    )
+                }
+            } else if is_applied {
+                Some(
+                    Span::from("(Will Unapply)")
+                        .style(theme::error_style())
+                        .bold(),
+                )
+            } else {
+                None
+            }
+        }
+        ApplyUiMode::Unapply => {
+            if is_selected {
+                if is_applied {
+                    Some(
+                        Span::from("(Will Unapply)")
+                            .style(theme::error_style())
+                            .bold(),
+                    )
+                } else {
+                    Some(Span::from("(Not Applied)").dim())
+                }
+            } else if is_applied {
+                Some(Span::from("(Applied)").dim())
+            } else {
+                None
+            }
+        }
+    }
 }

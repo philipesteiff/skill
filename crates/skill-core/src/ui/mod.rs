@@ -1,6 +1,7 @@
 pub mod browse;
 pub mod components;
 pub mod install;
+pub mod interaction;
 pub mod log;
 pub mod picker;
 pub mod terminal;

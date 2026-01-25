@@ -208,7 +208,7 @@ fn select_apply(
     if wants_cli {
         return select_from_args(output, targets, skills, args).map(Some);
     }
-    ui::run_apply_ui(targets, skills, applied)
+    ui::run_apply_ui(targets, skills, applied, args.unapply)
 }
 
 fn select_from_args(
