@@ -2,7 +2,8 @@
 
 These instructions apply anywhere Rust code lives in this repository (crates, tools, libraries, CLIs, TUIs, and tests).
 
-The goal is to write **clean, idiomatic, well-tested Rust**, with consistent formatting, Clippy compliance, and high-quality TUI code where applicable.
+The goal is to write **clean, idiomatic, well-tested Rust**, with consistent formatting, Clippy compliance, and
+high-quality TUI code where applicable.
 
 ---
 
@@ -15,6 +16,100 @@ The goal is to write **clean, idiomatic, well-tested Rust**, with consistent for
 * Use early returns and the `?` operator consistently for error handling.
 * Keep public APIs minimal and intentional.
 * Avoid exposing internals “just in case”.
+
+---
+
+## Writing Plans
+
+I'm using the writing-plans to create the implementation plan.
+
+You are writing for an engineer who has:
+- zero context about our codebase or domain
+- questionable taste
+- weak test design instincts
+  …but they are still a skilled developer. Your plan must be safe, explicit, and hard to misread.
+
+### Output format (strict)
+Use this exact structure and keep it skimmable:
+
+1) Purpose & Success Criteria
+2) Scope (In / Out)
+3) Assumptions & Constraints
+4) System Overview (current → target)
+5) Milestones (checklist)
+6) Testing Strategy (unit/integration/e2e) + commands
+7) Observability & Debugging (logs, metrics, tracing) if relevant
+8) Docs & UX copy updates
+9) Rollout / Compatibility / Migration (if relevant)
+10) Open Questions (tagged as BLOCKER or NON-BLOCKER)
+
+### 1) Purpose & Success Criteria
+- Start with "why" in 2–4 sentences.
+- Define measurable success criteria (what must work, how we verify it).
+- Include a small “Demo script” (3–6 steps) describing what someone should be able to do at the end.
+
+### 2) Scope (In / Out)
+- List must-haves vs nice-to-haves.
+- Explicitly mark out-of-scope items to prevent gold-plating (YAGNI).
+
+### 3) Assumptions & Constraints
+- Include invariants (e.g. “must be backwards compatible”, “no new deps”, “CLI must remain stable”).
+- If you lack info, do not guess silently. Add an assumption + how to validate it.
+
+### 4) System Overview (current → target)
+- Explain the current architecture at a high level (what exists today).
+- Describe the target architecture and the smallest change that moves us there.
+- Call out key dependencies and risk areas.
+
+### 5) Milestones (the core of the plan)
+Write iterative milestones that are independently valuable. For each milestone:
+
+**Milestone template (required)**
+- Goal (one sentence)
+- Files to touch (explicit paths; create new files only if justified)
+- Implementation steps (3–8 bullets, ordered)
+- Tests to add (what + where + why)
+- How to verify locally (exact commands)
+- Definition of Done (checkboxes)
+- Commit(s) (suggest 1–3 commit boundaries with commit messages)
+
+Milestone rules:
+- Prefer small milestones over one giant “implement everything”.
+- Show dependencies between milestones.
+- Default to TDD: tests first when practical.
+- DRY: avoid repeating the same instruction across milestones; factor shared steps into one place and reference it.
+
+### 6) Testing Strategy
+- Specify what to test at each layer (unit/integration/e2e), plus minimal happy-path coverage.
+- Include how to run tests + any fixtures/mocks needed.
+- If tests are hard, propose a tiny refactor milestone to make them testable.
+
+### 7) Observability & Debugging (if relevant)
+- What logs/metrics/traces to add, with sample log lines or fields.
+- How to diagnose failures quickly.
+
+### 8) Docs & UX copy updates
+- List docs files / README sections / CLI help text to update.
+- Include user-facing messages/error strings where relevant.
+
+### 9) Rollout / Compatibility / Migration (if relevant)
+- Backwards compatibility concerns.
+- Feature flags, migrations, or phased rollout steps.
+
+### 10) Open Questions
+- Only ask questions that materially change the plan.
+- Tag each as:
+  - BLOCKER: cannot proceed without answer
+  - NON-BLOCKER: can proceed with a safe default
+- For NON-BLOCKER, propose a default decision.
+
+### Quality bar checklist (must satisfy)
+Before finalizing, verify:
+- A junior dev could execute it without asking you what files to edit.
+- Every milestone has a clear DoD and test/verify steps.
+- “Happy path” is implementable early; edge cases can come later.
+- No hidden assumptions.
+- No timeline estimates.
 
 ---
 
