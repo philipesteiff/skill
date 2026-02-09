@@ -49,6 +49,12 @@ fn write_skill(repo_dir: &Path, name: &str, description: &str) -> Result<PathBuf
     Ok(skill_dir)
 }
 
+fn write_root_skill(repo_dir: &Path, name: &str, description: &str) -> Result<()> {
+    let contents = format!("---\nname: {name}\ndescription: {description}\n---\n");
+    fs::write(repo_dir.join("SKILL.md"), contents)?;
+    Ok(())
+}
+
 fn write_config(
     skills_home: &Path,
     source_id: &str,
@@ -159,6 +165,75 @@ fn when_syncing_with_missing_selection_should_warn() -> Result<()> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("selected skill(s) not found"));
     assert!(stdout.contains("Missing: skills/missing-skill"));
+
+    Ok(())
+}
+
+#[test]
+fn when_syncing_source_with_root_skill_should_install() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_dir = temp.path().join("skills-repo");
+    fs::create_dir_all(&repo_dir)?;
+    write_root_skill(&repo_dir, "root-skill", "Root skill")?;
+    let commit = init_repo(&repo_dir, "Initial root skill")?;
+
+    let repo_url = format!("file://{}", repo_dir.display());
+    write_config(&skills_home, "acme-skills", &repo_url, SelectionConfig::All)?;
+
+    let output = run_skill_with_env(&["sync", "@acme-skills"], &skills_home, None, &[])?;
+    assert!(output.status.success());
+
+    let lock = read_lock(&skills_home)?;
+    assert_eq!(lock.skills.len(), 1);
+    let root = lock
+        .skills
+        .iter()
+        .find(|entry| entry.name == "root-skill")
+        .context("missing root skill")?;
+    assert_eq!(root.resolved_commit, commit);
+    assert_eq!(root.path, ".");
+    assert!(Path::new(&root.install_dir).exists());
+
+    Ok(())
+}
+
+#[test]
+fn when_syncing_source_with_root_and_nested_skills_should_install_all() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_dir = temp.path().join("skills-repo");
+    fs::create_dir_all(&repo_dir)?;
+    write_root_skill(&repo_dir, "root-skill", "Root skill")?;
+    write_skill(&repo_dir, "nested-skill", "Nested skill")?;
+    init_repo(&repo_dir, "Initial mixed skills")?;
+
+    let repo_url = format!("file://{}", repo_dir.display());
+    write_config(&skills_home, "acme-skills", &repo_url, SelectionConfig::All)?;
+
+    let output = run_skill_with_env(&["sync", "@acme-skills"], &skills_home, None, &[])?;
+    assert!(output.status.success());
+
+    let lock = read_lock(&skills_home)?;
+    assert_eq!(lock.skills.len(), 2);
+    let root = lock
+        .skills
+        .iter()
+        .find(|entry| entry.name == "root-skill")
+        .context("missing root skill")?;
+    let nested = lock
+        .skills
+        .iter()
+        .find(|entry| entry.name == "nested-skill")
+        .context("missing nested skill")?;
+    assert_eq!(root.path, ".");
+    assert_eq!(nested.path, "skills/nested-skill");
+    assert!(Path::new(&root.install_dir).exists());
+    assert!(Path::new(&nested.install_dir).exists());
 
     Ok(())
 }

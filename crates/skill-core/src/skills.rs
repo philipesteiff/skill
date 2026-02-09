@@ -89,14 +89,26 @@ pub fn parse_skill_summary(contents: &str, dir_name: &str) -> Result<SkillSummar
 }
 
 pub fn parse_skill_details(contents: &str, dir_name: &str) -> Result<SkillDetails> {
+    parse_skill_details_with_options(contents, Some(dir_name), true)
+}
+
+pub fn parse_skill_details_with_options(
+    contents: &str,
+    dir_name: Option<&str>,
+    strict: bool,
+) -> Result<SkillDetails> {
     let frontmatter = parse_frontmatter(contents)?;
     validate_name(&frontmatter.name)?;
-    if dir_name != frontmatter.name {
-        return Err(anyhow!(
-            "skill name '{}' does not match directory '{}'",
-            frontmatter.name,
-            dir_name
-        ));
+
+    if strict {
+        let dir_name = dir_name.ok_or_else(|| anyhow!("invalid skill directory name"))?;
+        if dir_name != frontmatter.name {
+            return Err(anyhow!(
+                "skill name '{}' does not match directory '{}'",
+                frontmatter.name,
+                dir_name
+            ));
+        }
     }
 
     let (version, tags, namespace) = extract_metadata(frontmatter.metadata.as_ref());
@@ -181,4 +193,47 @@ fn extract_metadata(
         }
     }
     (version, tags, namespace)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn skill_contents(name: &str) -> String {
+        format!("---\nname: {name}\ndescription: Test skill\n---\n")
+    }
+
+    #[test]
+    fn when_parsing_skill_details_with_strict_directory_check_should_reject_mismatch() {
+        let contents = skill_contents("echo-skill");
+
+        let result = parse_skill_details_with_options(&contents, Some("different-dir"), true);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn when_parsing_skill_details_without_directory_check_should_accept_root_layout() -> Result<()>
+    {
+        let contents = skill_contents("root-skill");
+
+        let details = parse_skill_details_with_options(&contents, None, false)?;
+
+        assert_eq!(details.name, "root-skill");
+        assert_eq!(details.description, "Test skill");
+        Ok(())
+    }
+
+    #[test]
+    fn when_reading_skill_spec_without_strict_directory_check_should_accept_root_skill()
+    -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        fs::write(temp.path().join("SKILL.md"), skill_contents("root-skill"))?;
+
+        let spec = read_skill_spec_with_options(temp.path(), false)?;
+
+        assert_eq!(spec.name, "root-skill");
+        Ok(())
+    }
 }

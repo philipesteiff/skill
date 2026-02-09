@@ -38,6 +38,8 @@ cargo install --git https://github.com/philipesteiff/skill --locked --bin skill
 ```
 
 ## Usage
+Skill scans `SKILL.md` files recursively, including repository root (for single-skill repos).
+
 Browse a repo and install skills:
 ```bash
 skill browse owner/repo

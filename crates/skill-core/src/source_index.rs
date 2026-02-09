@@ -4,6 +4,8 @@ use rusqlite::{Connection, params};
 use crate::output::Output;
 use crate::paths::Paths;
 
+const INDEX_SCHEMA_VERSION: i64 = 2;
+
 #[derive(Debug, Clone)]
 pub struct IndexedSkill {
     pub name: String,
@@ -31,25 +33,7 @@ pub fn rebuild_index(
     }
 
     let conn = Connection::open(index_path)?;
-    conn.execute_batch(
-        "CREATE TABLE skills (
-            name TEXT,
-            description TEXT,
-            tags TEXT,
-            path TEXT,
-            updated_at TEXT,
-            commit_sha TEXT,
-            content_hash TEXT,
-            version TEXT
-        );
-        CREATE VIRTUAL TABLE skills_fts USING fts5(
-            name,
-            description,
-            tags,
-            content='skills',
-            content_rowid='rowid'
-        );",
-    )?;
+    create_schema(&conn)?;
 
     for skill in skills {
         let tags = skill.tags.join(" ");
@@ -79,16 +63,34 @@ pub fn rebuild_index(
     Ok(())
 }
 
+fn create_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE skills (
+            name TEXT,
+            description TEXT,
+            tags TEXT,
+            path TEXT,
+            updated_at TEXT,
+            commit_sha TEXT,
+            content_hash TEXT,
+            version TEXT
+        );
+        CREATE VIRTUAL TABLE skills_fts USING fts5(
+            name,
+            description,
+            tags,
+            content='skills',
+            content_rowid='rowid'
+        );",
+    )?;
+    conn.pragma_update(None, "user_version", INDEX_SCHEMA_VERSION)?;
+    Ok(())
+}
+
 pub fn is_compatible(index_path: &std::path::Path) -> Result<bool> {
     let conn = Connection::open(index_path)?;
-    let mut stmt = conn.prepare("PRAGMA table_info(skills)")?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    for row in rows {
-        if row? == "content_hash" {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    Ok(version == INDEX_SCHEMA_VERSION)
 }
 
 pub fn list_all(paths: &Paths, source_id: &str) -> Result<Vec<IndexedSkill>> {
@@ -162,4 +164,34 @@ fn split_tags(value: String) -> Vec<String> {
         .filter(|tag| !tag.is_empty())
         .map(|tag| tag.to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn when_schema_matches_current_version_should_be_compatible() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let index_path = temp.path().join("index.sqlite");
+        let conn = Connection::open(&index_path)?;
+        create_schema(&conn)?;
+        drop(conn);
+
+        assert!(is_compatible(&index_path)?);
+        Ok(())
+    }
+
+    #[test]
+    fn when_schema_version_is_stale_should_be_incompatible() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let index_path = temp.path().join("index.sqlite");
+        let conn = Connection::open(&index_path)?;
+        create_schema(&conn)?;
+        conn.pragma_update(None, "user_version", INDEX_SCHEMA_VERSION - 1)?;
+        drop(conn);
+
+        assert!(!is_compatible(&index_path)?);
+        Ok(())
+    }
 }

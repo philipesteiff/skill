@@ -90,7 +90,8 @@ fn install_target(paths: &Paths, reporter: &mut Reporter, target: &InstallTarget
 
     reporter.step("Validating SKILL.md")?;
     let skill_dir = temp.path().join(&target.path);
-    let spec = skills::read_skill_spec(&skill_dir)?;
+    let enforce_dir_match = target.path != ".";
+    let spec = skills::read_skill_spec_with_options(&skill_dir, enforce_dir_match)?;
 
     if let Some(expected) = &target.expected_name
         && &spec.name != expected

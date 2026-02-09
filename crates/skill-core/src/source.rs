@@ -77,24 +77,25 @@ fn scan_repo_skills(mirror_path: &Path, head_commit: &str) -> Result<SourceScan>
             Some(dir) => dir,
             None => continue,
         };
-        let dir_name = match dir.file_name().and_then(|name| name.to_str()) {
-            Some(name) => name,
-            None => continue,
-        };
+        let mut skill_path = dir.to_string_lossy().to_string();
+        if skill_path.is_empty() {
+            skill_path = ".".to_string();
+        }
+        let is_root_skill = skill_path == ".";
+        let dir_name = dir.file_name().and_then(|name| name.to_str());
         let contents = match git::show_file(mirror_path, head_commit, &file) {
             Ok(contents) => contents,
             Err(err) => {
                 invalid_skills.push(InvalidSkill {
-                    path: dir.to_string_lossy().to_string(),
+                    path: skill_path.clone(),
                     error: err.to_string(),
                 });
                 continue;
             }
         };
 
-        match skills::parse_skill_details(&contents, dir_name) {
+        match skills::parse_skill_details_with_options(&contents, dir_name, !is_root_skill) {
             Ok(details) => {
-                let skill_path = dir.to_string_lossy().to_string();
                 let content_hash = match git::object_hash(mirror_path, head_commit, &skill_path) {
                     Ok(hash) => hash,
                     Err(_) => head_commit.to_string(),
@@ -118,7 +119,7 @@ fn scan_repo_skills(mirror_path: &Path, head_commit: &str) -> Result<SourceScan>
             }
             Err(err) => {
                 invalid_skills.push(InvalidSkill {
-                    path: dir.to_string_lossy().to_string(),
+                    path: skill_path,
                     error: err.to_string(),
                 });
             }

@@ -16,7 +16,7 @@ pub struct Cli {
 pub enum Commands {
     #[command(
         about = "Browse and install skills from a repo or source",
-        long_about = "Browse and install skills from a repo or source.\n\nBehavior:\n- With no source, shows installed skills for uninstall.\n- In installed view, select skills and press Enter to uninstall.\n- First browse of a repo implicitly trusts it as a source.\n- Scans SKILL.md files and builds a local index if needed.\n- Opens a TUI list with search and multi-select.\n- Installs only the selected skills and stores selection state for sync.",
+        long_about = "Browse and install skills from a repo or source.\n\nBehavior:\n- With no source, shows installed skills for uninstall.\n- In installed view, select skills and press Enter to uninstall.\n- First browse of a repo implicitly trusts it as a source.\n- Scans SKILL.md files recursively (including repo root) and builds a local index if needed.\n- Opens a TUI list with search and multi-select.\n- Installs only the selected skills and stores selection state for sync.",
         display_order = 10
     )]
     Browse(skill_features::browse::BrowseArgs),
