@@ -226,7 +226,9 @@ impl ExcludeDocument {
     }
 
     fn remove_managed_entry(&mut self, repo_relative_path: &str) -> bool {
-        self.managed_entries.remove(repo_relative_path)
+        let removed_managed = self.managed_entries.remove(repo_relative_path);
+        let removed_tracked = self.tracked_entries.remove(repo_relative_path);
+        removed_managed || removed_tracked
     }
 }
 
@@ -303,5 +305,22 @@ mod tests {
         assert!(rendered.contains("# tracked: .codex/skills/acme__echo-skill"));
         // Tracked entries should not appear as ignore patterns.
         assert!(!rendered.contains("\n.codex/skills/acme__echo-skill\n"));
+    }
+
+    #[test]
+    fn when_managed_entry_removed_should_remove_tracked_entry_too() {
+        let initial = [
+            MANAGED_START,
+            "# tracked: .codex/skills/acme__echo-skill",
+            MANAGED_END,
+        ]
+        .join("\n");
+        let mut document = ExcludeDocument::parse(&initial);
+
+        let changed = document.remove_managed_entry(".codex/skills/acme__echo-skill");
+
+        assert!(changed);
+        let rendered = document.render();
+        assert!(!rendered.contains("# tracked: .codex/skills/acme__echo-skill"));
     }
 }
