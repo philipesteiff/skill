@@ -64,6 +64,9 @@ skill apply
 
 ![Select targets TUI](docs/screenshots/apply_selection.png)
 
+Applied skills are copied as real folders (not symlinks).
+Running `skill sync` refreshes applied copies when installs update.
+
 In the skills step, press `g` to toggle Git tracking per skill (project targets in a Git repo).
 The default is `not tracked`.
 `not tracked` skills are written to local `.git/info/exclude`, so personal preferences stay local and are not committed.
