@@ -33,7 +33,7 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 ## Findings Overview
 | ID | Severity | Type | Title |
 |---|---|---|---|
-| H-01 | high | business-logic | Mirror cache key collisions break source isolation |
+| H-01 | high | business-logic | Mirror cache key collisions break source isolation [FIXED 2026-02-11] |
 | H-02 | high | business-logic | Duplicate skill names in one source collapse into one lock entry |
 | H-03 | high | missing-flow | Uninstall flow does not clean applied targets or applied index [FIXED 2026-02-11] |
 | M-01 | medium | edge-case | Raw FTS query causes SQL failure for malformed search [FIXED 2026-02-11] |
@@ -50,6 +50,15 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 ### H-01: Mirror cache key collisions break source isolation
 Severity: `high`  
 Type: `business-logic`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-core/src/paths.rs` now uses a SHA-256 cache key (`sha256(normalized_url)`) for mirror cache paths instead of lossy slugification.
+- GitHub URL forms are normalized before hashing, so equivalent forms share one cache key.
+- Added path-key regression tests in `/Users/philipesteiff/Projects/skill/crates/skill-core/src/paths.rs` including the `repo-a` vs `repo_a` collision case.
+
+Verification:
+- `cargo test -p skill-core paths::tests::when_cache_repo_paths_have_slug_collision_inputs_should_still_be_unique` passes.
 
 What is happening:
 - Mirror cache paths are derived from a lossy slug of URL text.

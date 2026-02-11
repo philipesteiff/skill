@@ -1,8 +1,7 @@
 use anyhow::{Result, anyhow};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::path::PathBuf;
-
-use crate::util::slugify;
 
 #[derive(Debug, Clone)]
 pub struct Paths {
@@ -67,11 +66,56 @@ impl Paths {
     }
 
     pub fn cache_repo_path(&self, repo_url: &str) -> PathBuf {
-        let slug = slugify(repo_url);
-        self.cache_dir().join(format!("{}.git", slug))
+        let normalized = normalized_cache_url(repo_url);
+        let key = sha256_hex(&normalized);
+        self.cache_dir().join(format!("{key}.git"))
     }
 
     pub fn installed_dir(&self) -> PathBuf {
         self.base.join("installed")
+    }
+}
+
+fn normalized_cache_url(repo_url: &str) -> String {
+    if let Some(normalized) = crate::util::normalize_github_url(repo_url) {
+        return normalized;
+    }
+    repo_url.trim().to_string()
+}
+
+fn sha256_hex(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn when_cache_repo_paths_have_slug_collision_inputs_should_still_be_unique() {
+        let paths = Paths::from_base(PathBuf::from("/tmp/skill-test"));
+        let first = paths.cache_repo_path("file:///tmp/repo-a");
+        let second = paths.cache_repo_path("file:///tmp/repo_a");
+
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn when_cache_repo_urls_are_equivalent_github_forms_should_share_path() {
+        let paths = Paths::from_base(PathBuf::from("/tmp/skill-test"));
+        let first = paths.cache_repo_path("https://github.com/acme/skills");
+        let second = paths.cache_repo_path("https://github.com/acme/skills.git");
+
+        assert_eq!(first, second);
+        assert_eq!(
+            first.extension().and_then(|ext| ext.to_str()),
+            Some("git"),
+            "cache path should keep .git suffix"
+        );
+        assert_eq!(
+            first.parent(),
+            Some(Path::new("/tmp/skill-test/cache/repos"))
+        );
     }
 }
