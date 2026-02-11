@@ -655,6 +655,9 @@ mod tests {
             },
             source_dir: PathBuf::from("/tmp"),
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         }
     }
 

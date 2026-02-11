@@ -51,9 +51,10 @@ fn seed_install(paths: &Path, source_id: &str, name: &str, source: &Path) -> Res
     Ok(())
 }
 
-fn assert_symlink(path: &Path) -> Result<()> {
+fn assert_applied_dir(path: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(path)?;
-    assert!(metadata.file_type().is_symlink());
+    assert!(!metadata.file_type().is_symlink());
+    assert!(path.is_dir());
     Ok(())
 }
 
@@ -125,7 +126,7 @@ fn when_applying_non_interactive_should_link_skill() -> Result<()> {
 
     let applied_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
-    assert_symlink(&applied_dir)?;
+    assert_applied_dir(&applied_dir)?;
 
     Ok(())
 }
@@ -179,7 +180,7 @@ fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
             "missing global {}",
             global_dest.display()
         );
-        assert_symlink(&home_dir.join(global_rel).join("acme__echo-skill"))?;
+        assert_applied_dir(&home_dir.join(global_rel).join("acme__echo-skill"))?;
 
         let project_dest = project_dir
             .join(project_rel)
@@ -190,7 +191,7 @@ fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
             "missing project {}",
             project_dest.display()
         );
-        assert_symlink(&project_dir.join(project_rel).join("acme__echo-skill"))?;
+        assert_applied_dir(&project_dir.join(project_rel).join("acme__echo-skill"))?;
     }
 
     Ok(())
@@ -224,7 +225,7 @@ fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
 
     let applied_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
-    assert_symlink(&applied_dir)?;
+    assert_applied_dir(&applied_dir)?;
 
     let output = run_skill(
         &[
@@ -415,7 +416,7 @@ fn when_unapplying_global_target_should_remove_global_only() -> Result<()> {
 
     let global_dest = home_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(global_dest.join("SKILL.md").exists());
-    assert_symlink(&global_dest)?;
+    assert_applied_dir(&global_dest)?;
 
     let project_dest = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(!project_dest.exists());
@@ -493,8 +494,8 @@ fn when_applying_across_projects_should_keep_each_project_isolated() -> Result<(
     let project_b_dest = project_b.join(".claude/skills").join("acme__echo-skill");
     assert!(project_a_dest.join("SKILL.md").exists());
     assert!(project_b_dest.join("SKILL.md").exists());
-    assert_symlink(&project_a_dest)?;
-    assert_symlink(&project_b_dest)?;
+    assert_applied_dir(&project_a_dest)?;
+    assert_applied_dir(&project_b_dest)?;
 
     let output = support::run_skill_with_env(
         &[
@@ -546,7 +547,79 @@ fn when_applying_project_target_without_markers_should_still_apply() -> Result<(
 
     let applied_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
     assert!(applied_dir.join("SKILL.md").exists());
-    assert_symlink(&applied_dir)?;
+    assert_applied_dir(&applied_dir)?;
+
+    Ok(())
+}
+
+#[test]
+fn when_applying_over_unmanaged_directory_should_report_failure() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let project_dir = temp.path().join("project-unmanaged");
+    fs::create_dir_all(project_dir.join(".claude/skills"))?;
+    let unmanaged_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
+    fs::create_dir_all(&unmanaged_dir)?;
+    fs::write(unmanaged_dir.join("SKILL.md"), "unmanaged")?;
+
+    let output = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("destination exists and is unmanaged"));
+
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn when_applying_over_symlink_should_report_migration_hint() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let project_dir = temp.path().join("project-symlink");
+    fs::create_dir_all(project_dir.join(".claude/skills"))?;
+    let target_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
+    let other_dir = temp.path().join("other");
+    fs::create_dir_all(&other_dir)?;
+    symlink(&other_dir, &target_dir)?;
+
+    let output = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("destination is a symlink"));
 
     Ok(())
 }

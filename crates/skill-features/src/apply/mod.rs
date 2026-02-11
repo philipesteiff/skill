@@ -13,11 +13,12 @@ mod ui;
 
 use self::agents::{AgentTarget, Scope, TargetKey, detect_agents, targets_for_agents};
 use self::git_tracking::{GitTrackingManager, TrackingPreference};
+use crate::applied_index::{AppliedEntry, AppliedIndex};
 use skill_core::git;
 use skill_core::lockfile;
 use skill_core::output::Output;
 use skill_core::paths::Paths;
-use skill_core::util::ensure_dir;
+use skill_core::util::{copy_dir_recursive, ensure_dir, remove_dir_if_exists};
 
 #[derive(Args, Clone, Debug)]
 pub struct ApplyArgs {
@@ -64,6 +65,9 @@ struct ApplySkill {
     pub key: SkillKey,
     pub source_dir: PathBuf,
     pub source_exists: bool,
+    pub resolved_commit: String,
+    pub content_hash: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -124,11 +128,23 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
                 key,
                 source_dir,
                 source_exists,
+                resolved_commit: entry.resolved_commit,
+                content_hash: entry.content_hash,
+                updated_at: entry.updated_at,
             }
         })
         .collect::<Vec<_>>();
 
-    let applied = compute_applied(&skills, &targets);
+    let mut applied_index = match AppliedIndex::load(paths) {
+        Ok(index) => index,
+        Err(err) => {
+            output.line(format!(
+                "Warning: failed to read applied index; treating as empty: {err}"
+            ))?;
+            AppliedIndex::default()
+        }
+    };
+    let applied = compute_applied(&skills, &targets, &applied_index);
     let tracking = build_tracking_context(&repo_root, &targets, &skills);
     let selection = select_apply(output, &targets, &skills, &applied, &tracking, args)?;
     let Some(selection) = selection else {
@@ -155,7 +171,15 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
         return Ok(());
     }
 
-    let results = apply_selection(intent, &selection, &targets, &skills, &tracking)?;
+    let results = apply_selection(
+        intent,
+        &selection,
+        &targets,
+        &skills,
+        &tracking,
+        &mut applied_index,
+    )?;
+    applied_index.save(paths)?;
 
     output.line("")?;
     if args.unapply {
@@ -328,12 +352,15 @@ fn parse_skill(value: &str, skills: &[ApplySkill]) -> Result<SkillKey> {
 fn compute_applied(
     skills: &[ApplySkill],
     targets: &[AgentTarget],
+    applied_index: &AppliedIndex,
 ) -> HashMap<(SkillKey, TargetKey), bool> {
     let mut applied = HashMap::new();
     for skill in skills {
         for target in targets {
             let dest = dest_dir(target, &skill.key);
-            let is_applied = is_symlink(&dest).unwrap_or(false);
+            let is_applied = applied_index.is_target_managed(&dest)
+                && dest.is_dir()
+                && !is_symlink(&dest).unwrap_or(false);
             applied.insert((skill.key.clone(), target.key.clone()), is_applied);
         }
     }
@@ -395,6 +422,24 @@ fn dest_dir(target: &AgentTarget, skill: &SkillKey) -> PathBuf {
     target
         .base_dir
         .join(format!("{}__{}", skill.source_id, skill.name))
+}
+
+fn build_applied_entry(skill: &ApplySkill, dest: &std::path::Path) -> AppliedEntry {
+    AppliedEntry {
+        source_id: skill.key.source_id.clone(),
+        name: skill.key.name.clone(),
+        target_dir: dest.to_path_buf(),
+        install_dir: skill.source_dir.clone(),
+        resolved_commit: skill.resolved_commit.clone(),
+        content_hash: skill.content_hash.clone(),
+        updated_at: skill.updated_at.clone(),
+    }
+}
+
+fn entry_needs_refresh(entry: &AppliedEntry, skill: &ApplySkill) -> bool {
+    entry.install_dir != skill.source_dir
+        || entry.resolved_commit != skill.resolved_commit
+        || entry.content_hash != skill.content_hash
 }
 
 #[derive(Clone)]
@@ -470,6 +515,7 @@ fn apply_selection(
     targets: &[AgentTarget],
     skills: &[ApplySkill],
     tracking: &TrackingContext,
+    applied_index: &mut AppliedIndex,
 ) -> Result<ApplyResults> {
     let target_map = targets
         .iter()
@@ -527,86 +573,107 @@ fn apply_selection(
 
             match mode {
                 ActionMode::Apply => {
-                    let mut apply_completed = false;
+                    let is_symlink = is_symlink(&dest).unwrap_or(false);
+                    let managed_entry = applied_index.entry_for_target(&dest).cloned();
                     if dest.exists() {
-                        if is_symlink(&dest).unwrap_or(false) {
-                            if symlink_matches(&skill.source_dir, &dest).unwrap_or(false) {
-                                results.skipped.push(action.clone());
-                                apply_completed = true;
-                            } else {
-                                fs::remove_file(&dest)?;
-                            }
-                        } else {
+                        if is_symlink {
                             results.failed.push(FailedAction {
                                 action,
-                                reason: "destination exists and is not a managed symlink"
+                                reason: "destination is a symlink; run skill apply --unapply then reapply to migrate"
                                     .to_string(),
                             });
                             continue;
                         }
-                    }
-                    if !skill.source_exists && !apply_completed {
-                        results.failed.push(FailedAction {
-                            action,
-                            reason: "missing source directory".to_string(),
-                        });
-                        continue;
-                    }
-                    if !apply_completed {
+                        if !dest.is_dir() {
+                            results.failed.push(FailedAction {
+                                action,
+                                reason: "destination exists and is not a directory".to_string(),
+                            });
+                            continue;
+                        }
+                        if managed_entry.is_none() {
+                            results.failed.push(FailedAction {
+                                action,
+                                reason: "destination exists and is unmanaged".to_string(),
+                            });
+                            continue;
+                        }
+                        let needs_refresh = managed_entry
+                            .as_ref()
+                            .map(|entry| entry_needs_refresh(entry, skill))
+                            .unwrap_or(true);
+                        if needs_refresh {
+                            if !skill.source_exists {
+                                results.failed.push(FailedAction {
+                                    action,
+                                    reason: "missing source directory".to_string(),
+                                });
+                                continue;
+                            }
+                            remove_dir_if_exists(&dest)?;
+                            copy_dir_recursive(&skill.source_dir, &dest)?;
+                            results.added.push(action.clone());
+                        } else {
+                            results.skipped.push(action.clone());
+                        }
+                        applied_index.upsert(build_applied_entry(skill, &dest));
+                    } else {
+                        if !skill.source_exists {
+                            results.failed.push(FailedAction {
+                                action,
+                                reason: "missing source directory".to_string(),
+                            });
+                            continue;
+                        }
                         ensure_dir(&target.base_dir)?;
                         if let Some(parent) = dest.parent() {
                             ensure_dir(parent)?;
                         }
-                        match create_symlink_dir(&skill.source_dir, &dest) {
-                            Ok(()) => {
-                                results.added.push(action.clone());
-                                apply_completed = true;
-                            }
-                            Err(err) => {
-                                results.failed.push(FailedAction {
-                                    action,
-                                    reason: err.to_string(),
-                                });
-                                continue;
-                            }
-                        }
+                        copy_dir_recursive(&skill.source_dir, &dest)?;
+                        results.added.push(action.clone());
+                        applied_index.upsert(build_applied_entry(skill, &dest));
                     }
-                    if apply_completed {
-                        apply_tracking_preference(
-                            &mut results,
-                            &action,
-                            &dest,
-                            target_key,
-                            tracking_pref,
-                            tracking,
-                            &mut tracking_managers,
-                        );
-                    }
+                    apply_tracking_preference(
+                        &mut results,
+                        &action,
+                        &dest,
+                        target_key,
+                        tracking_pref,
+                        tracking,
+                        &mut tracking_managers,
+                    );
                 }
                 ActionMode::Unapply => {
-                    let unapply_completed = if !dest.exists() {
-                        results.skipped.push(action.clone());
-                        true
-                    } else {
-                        match remove_applied(&skill.source_dir, &dest) {
-                            Ok(RemoveOutcome::Removed) => {
-                                results.removed.push(action.clone());
-                                true
-                            }
-                            Ok(RemoveOutcome::Skipped(reason)) => {
-                                results.failed.push(FailedAction { action, reason });
-                                continue;
-                            }
-                            Err(err) => {
-                                results.failed.push(FailedAction {
-                                    action,
-                                    reason: err.to_string(),
-                                });
-                                continue;
-                            }
+                    let mut clear_tracking = false;
+                    if !dest.exists() {
+                        if applied_index.remove_target(&dest) {
+                            clear_tracking = true;
                         }
-                    };
-                    if unapply_completed {
+                        results.skipped.push(action.clone());
+                    } else if is_symlink(&dest).unwrap_or(false) {
+                        fs::remove_file(&dest)?;
+                        applied_index.remove_target(&dest);
+                        results.removed.push(action.clone());
+                        clear_tracking = true;
+                    } else if !dest.is_dir() {
+                        results.failed.push(FailedAction {
+                            action,
+                            reason: "destination exists and is not a directory".to_string(),
+                        });
+                        continue;
+                    } else if !applied_index.is_target_managed(&dest) {
+                        results.failed.push(FailedAction {
+                            action,
+                            reason: "destination exists and is unmanaged".to_string(),
+                        });
+                        continue;
+                    } else {
+                        remove_dir_if_exists(&dest)?;
+                        applied_index.remove_target(&dest);
+                        results.removed.push(action.clone());
+                        clear_tracking = true;
+                    }
+                    if clear_tracking {
                         clear_tracking_preference(
                             &mut results,
                             &action,
@@ -773,61 +840,12 @@ fn manager_for_repo<'a>(
     managers.get_mut(repo_root)
 }
 
-fn create_symlink_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(src, dest)?;
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        std::os::windows::fs::symlink_dir(src, dest)?;
-        Ok(())
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        Err(anyhow!("symlinked apply is not supported on this platform"))
-    }
-}
-
-enum RemoveOutcome {
-    Removed,
-    Skipped(String),
-}
-
-fn remove_applied(_source: &std::path::Path, dest: &std::path::Path) -> Result<RemoveOutcome> {
-    let metadata = fs::symlink_metadata(dest)?;
-    if !metadata.file_type().is_symlink() {
-        return Ok(RemoveOutcome::Skipped("not a managed symlink".to_string()));
-    }
-    fs::remove_file(dest)?;
-    Ok(RemoveOutcome::Removed)
-}
-
 fn is_symlink(dest: &std::path::Path) -> Result<bool> {
     if !dest.exists() {
         return Ok(false);
     }
     let metadata = fs::symlink_metadata(dest)?;
     Ok(metadata.file_type().is_symlink())
-}
-
-fn symlink_matches(source: &std::path::Path, dest: &std::path::Path) -> Result<bool> {
-    let metadata = fs::symlink_metadata(dest)?;
-    if !metadata.file_type().is_symlink() {
-        return Ok(false);
-    }
-    let link_target = fs::read_link(dest)?;
-    let resolved_target = if link_target.is_absolute() {
-        fs::canonicalize(&link_target)?
-    } else {
-        let parent = dest
-            .parent()
-            .ok_or_else(|| anyhow!("missing symlink parent"))?;
-        fs::canonicalize(parent.join(link_target))?
-    };
-    let resolved_source = fs::canonicalize(source)?;
-    Ok(resolved_target == resolved_source)
 }
 
 #[cfg(test)]
@@ -886,6 +904,9 @@ mod tests {
             },
             source_dir: temp.path().join("src"),
             source_exists: false,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
         let target = AgentTarget {
             key: TargetKey {
@@ -899,7 +920,11 @@ mod tests {
             enabled: true,
             default_selected: true,
         };
-        let applied = compute_applied(std::slice::from_ref(&skill), std::slice::from_ref(&target));
+        let applied = compute_applied(
+            std::slice::from_ref(&skill),
+            std::slice::from_ref(&target),
+            &AppliedIndex::default(),
+        );
         assert_eq!(
             applied
                 .get(&(skill.key.clone(), target.key.clone()))
@@ -932,11 +957,17 @@ mod tests {
             key: selected_key.clone(),
             source_dir: selected_src,
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
         let removed_skill = ApplySkill {
             key: removed_key.clone(),
             source_dir: removed_src.clone(),
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
 
         let target = AgentTarget {
@@ -953,7 +984,9 @@ mod tests {
         };
 
         let removed_dest = base_dir.join("acme__removed");
-        create_symlink_dir(&removed_src, &removed_dest)?;
+        copy_dir_recursive(&removed_src, &removed_dest)?;
+        let mut applied_index = AppliedIndex::default();
+        applied_index.upsert(build_applied_entry(&removed_skill, &removed_dest));
 
         let selection = ApplySelection {
             targets: vec![target.key.clone()],
@@ -966,15 +999,12 @@ mod tests {
             std::slice::from_ref(&target),
             &[selected_skill, removed_skill],
             &TrackingContext::default(),
+            &mut applied_index,
         )?;
 
         let selected_dest = base_dir.join("acme__selected");
         assert!(selected_dest.exists());
-        assert!(
-            fs::symlink_metadata(&selected_dest)?
-                .file_type()
-                .is_symlink()
-        );
+        assert!(selected_dest.is_dir());
         assert!(!removed_dest.exists());
         assert_eq!(results.added.len(), 1);
         assert_eq!(results.removed.len(), 1);
@@ -983,7 +1013,73 @@ mod tests {
     }
 
     #[test]
-    fn when_unapplying_should_remove_mismatched_symlink() -> Result<()> {
+    fn when_dest_exists_unmanaged_should_fail() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let base_dir = temp.path().join("targets");
+        fs::create_dir_all(&base_dir)?;
+        let source_dir = temp.path().join("src");
+        fs::create_dir_all(&source_dir)?;
+        fs::write(source_dir.join("SKILL.md"), "source")?;
+
+        let skill_key = SkillKey {
+            source_id: "acme".to_string(),
+            name: "echo".to_string(),
+        };
+        let skill = ApplySkill {
+            key: skill_key.clone(),
+            source_dir: source_dir.clone(),
+            source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
+        };
+        let target = AgentTarget {
+            key: TargetKey {
+                agent: AgentId::Cursor,
+                scope: Scope::Project,
+            },
+            label: "Cursor (project)".to_string(),
+            short: "cu:p".to_string(),
+            base_dir: base_dir.clone(),
+            detected: true,
+            enabled: true,
+            default_selected: true,
+        };
+
+        let dest = dest_dir(&target, &skill_key);
+        fs::create_dir_all(&dest)?;
+
+        let selection = ApplySelection {
+            targets: vec![target.key.clone()],
+            skills: vec![skill_key.clone()],
+            tracking: HashMap::new(),
+        };
+        let mut applied_index = AppliedIndex::default();
+        let results = apply_selection(
+            ApplyIntent::ApplyOnly,
+            &selection,
+            &[target],
+            &[skill],
+            &TrackingContext::default(),
+            &mut applied_index,
+        )?;
+
+        assert!(dest.exists());
+        assert_eq!(results.failed.len(), 1);
+        assert!(
+            results.failed[0]
+                .reason
+                .contains("destination exists and is unmanaged")
+        );
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn when_dest_symlink_should_fail_and_instruct_manual_migration() -> Result<()> {
+        use std::os::unix::fs::symlink;
+
         let temp = tempfile::tempdir()?;
         let base_dir = temp.path().join("targets");
         fs::create_dir_all(&base_dir)?;
@@ -1002,6 +1098,9 @@ mod tests {
             key: skill_key.clone(),
             source_dir: source_dir.clone(),
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
         let target = AgentTarget {
             key: TargetKey {
@@ -1017,23 +1116,25 @@ mod tests {
         };
 
         let dest = dest_dir(&target, &skill_key);
-        create_symlink_dir(&other_dir, &dest)?;
+        symlink(&other_dir, &dest)?;
 
         let selection = ApplySelection {
             targets: vec![target.key.clone()],
-            skills: vec![],
+            skills: vec![skill_key.clone()],
             tracking: HashMap::new(),
         };
+        let mut applied_index = AppliedIndex::default();
         let results = apply_selection(
-            ApplyIntent::DesiredState,
+            ApplyIntent::ApplyOnly,
             &selection,
             &[target],
             &[skill],
             &TrackingContext::default(),
+            &mut applied_index,
         )?;
 
-        assert!(!dest.exists());
-        assert_eq!(results.removed.len(), 1);
+        assert_eq!(results.failed.len(), 1);
+        assert!(results.failed[0].reason.contains("symlink"));
 
         Ok(())
     }
@@ -1057,6 +1158,9 @@ mod tests {
             key: skill_key.clone(),
             source_dir: source_dir.clone(),
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
         let target = AgentTarget {
             key: TargetKey {
@@ -1083,6 +1187,7 @@ mod tests {
             std::slice::from_ref(&target),
             std::slice::from_ref(&skill),
             &tracking,
+            &mut AppliedIndex::default(),
         )?;
         assert!(results.tracking_failed.is_empty());
         assert_eq!(results.tracking_changes.len(), 1);
@@ -1113,6 +1218,9 @@ mod tests {
             key: skill_key.clone(),
             source_dir: source_dir.clone(),
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
         let target = AgentTarget {
             key: TargetKey {
@@ -1133,12 +1241,14 @@ mod tests {
             skills: vec![skill_key.clone()],
             tracking: HashMap::from([(skill_key.clone(), TrackingPreference::NotTracked)]),
         };
+        let mut applied_index = AppliedIndex::default();
         apply_selection(
             ApplyIntent::ApplyOnly,
             &not_tracked_selection,
             std::slice::from_ref(&target),
             std::slice::from_ref(&skill),
             &tracking,
+            &mut applied_index,
         )?;
 
         let tracked_selection = ApplySelection {
@@ -1152,6 +1262,7 @@ mod tests {
             std::slice::from_ref(&target),
             std::slice::from_ref(&skill),
             &tracking,
+            &mut applied_index,
         )?;
         assert!(results.tracking_failed.is_empty());
 
@@ -1181,6 +1292,9 @@ mod tests {
             key: skill_key.clone(),
             source_dir: source_dir.clone(),
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
         let target = AgentTarget {
             key: TargetKey {
@@ -1201,12 +1315,14 @@ mod tests {
             skills: vec![skill_key.clone()],
             tracking: HashMap::from([(skill_key.clone(), TrackingPreference::NotTracked)]),
         };
+        let mut applied_index = AppliedIndex::default();
         apply_selection(
             ApplyIntent::ApplyOnly,
             &apply_selection_args,
             std::slice::from_ref(&target),
             std::slice::from_ref(&skill),
             &tracking,
+            &mut applied_index,
         )?;
 
         let unapply_selection_args = ApplySelection {
@@ -1220,6 +1336,7 @@ mod tests {
             std::slice::from_ref(&target),
             std::slice::from_ref(&skill),
             &tracking,
+            &mut applied_index,
         )?;
         assert!(results.tracking_failed.is_empty());
 
@@ -1244,6 +1361,9 @@ mod tests {
             key: skill_key.clone(),
             source_dir: source_dir.clone(),
             source_exists: true,
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: None,
+            updated_at: None,
         };
         let target = AgentTarget {
             key: TargetKey {
@@ -1263,6 +1383,7 @@ mod tests {
             skills: vec![skill_key.clone()],
             tracking: HashMap::from([(skill_key.clone(), TrackingPreference::NotTracked)]),
         };
+        let mut applied_index = AppliedIndex::default();
 
         let results = apply_selection(
             ApplyIntent::ApplyOnly,
@@ -1270,6 +1391,7 @@ mod tests {
             std::slice::from_ref(&target),
             std::slice::from_ref(&skill),
             &tracking,
+            &mut applied_index,
         )?;
         assert!(results.tracking_changes.is_empty());
         assert!(results.tracking_failed.is_empty());
