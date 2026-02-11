@@ -42,8 +42,8 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 | M-04 | medium | ux-logic | Skipped apply actions are not shown in output [FIXED 2026-02-11] |
 | M-05 | medium | ux-logic | Browse `select all` ignores active filter and selects hidden rows [FIXED 2026-02-11] |
 | M-06 | medium | missing-flow | Apply TUI can start with no selected target and Enter does nothing [FIXED 2026-02-11] |
-| L-01 | low | documentation/usage-gap | README usage is inconsistent with required sync argument |
-| L-02 | low | documentation/usage-gap | Playground guide documents removed commands |
+| L-01 | low | documentation/usage-gap | README usage is inconsistent with required sync argument [FIXED 2026-02-11] |
+| L-02 | low | documentation/usage-gap | Playground guide documents removed commands [FIXED 2026-02-11] |
 
 ## Detailed Findings
 
@@ -424,6 +424,13 @@ Suggested tests:
 ### L-01: README usage is inconsistent with required `sync` argument
 Severity: `low`  
 Type: `documentation/usage-gap`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/README.md` now documents `skill sync @owner-repo` (with source-id context) instead of `skill sync` with no argument.
+
+Verification:
+- README usage snippet now matches CLI requirement `skill sync <SOURCE>`.
 
 What is happening:
 - README shows `skill sync` with no argument.
@@ -450,6 +457,16 @@ Suggested tests:
 ### L-02: Playground guide documents removed commands
 Severity: `low`  
 Type: `documentation/usage-gap`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/playground/README.md` usage was rewritten around current commands:
+  - `sync @source-id`
+  - `apply` (non-TUI example)
+- Removed stale examples using removed commands (`add-registry`, `search`, `install`).
+
+Verification:
+- Playground README command examples now align with the current CLI surface (`browse`, `sync`, `apply`).
 
 What is happening:
 - Playground guide still references `add-registry`, `search`, and `install`.

@@ -53,7 +53,8 @@ skill browse
 
 Sync updates from a source:
 ```bash
-skill sync 
+# first browse trusts a source and saves an id, e.g. @owner-repo
+skill sync @owner-repo
 ```
 
 Apply installed skills to agent directories (TUI):

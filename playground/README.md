@@ -1,10 +1,10 @@
 # Playground
 
-This directory provides a local, offline sandbox for testing the CLI against
-real git repos and a registry repo. The setup script creates two local repos:
+This directory provides a local, offline sandbox for testing the current CLI
+flows (`sync`, `apply`) against local git repos. The setup script creates two repos:
 
 - `skills-repo` with two sample skills
-- `skills-registry` containing registry metadata
+- `skills-registry` containing legacy metadata (kept for compatibility experiments)
 
 ## Setup
 ```bash
@@ -15,16 +15,24 @@ just playground
 ```bash
 export SKILLS_HOME=playground/work/home
 
-# Register the local registry repo
-cargo run -- add-registry file://$PWD/playground/work/skills-registry
-cargo run -- sync
+# Seed a local source config entry for the local repo.
+cat > "$SKILLS_HOME/config.json" <<EOF
+{
+  "sources": [
+    {
+      "id": "local-skills",
+      "url": "file://$PWD/playground/work/skills-repo",
+      "selection": { "mode": "all" }
+    }
+  ]
+}
+EOF
 
-# Search and install from the registry
-cargo run -- search echo
-cargo run -- install acme/skills/echo-skill
+# Install/update from the local source.
+cargo run -- sync @local-skills
 
-# Install directly from the repo
-cargo run -- install "file://$PWD/playground/work/skills-repo#skills/notes-skill"
+# Apply a synced skill into the current project (no TUI).
+cargo run -- apply --no-tui --targets codex:project --skills local-skills/echo-skill
 ```
 
 ## Reset
