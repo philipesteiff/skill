@@ -51,9 +51,12 @@ Browse installed skills and uninstall (select skills → Enter):
 skill browse
 ```
 
-Sync updates from a source:
+Sync updates:
 ```bash
-# first browse trusts a source and saves an id, e.g. @owner-repo
+# sync all configured sources
+skill sync
+
+# sync one source by id (first browse trusts a source and saves an id)
 skill sync @owner-repo
 ```
 

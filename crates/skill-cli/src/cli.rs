@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
     name = "skill",
     version,
     about = "Manage Agent Skills",
-    after_help = "Skill lifecycle:\n  1) Browse a repo to install skills (skill browse <repo>).\n     - First browse of a repo adds it as a trusted source.\n  2) Browse installed skills to uninstall (skill browse).\n     - Select skills and press Enter to uninstall.\n  3) Keep installed skills in sync with their source (skill sync).\n  Installed skills stay linked to their source of truth.\n\nSources:\n  repo:  https://github.com/owner/repo or owner/repo\n  saved: @source-id\n\nExamples:\n  skill browse https://github.com/acme/skills\n  skill browse @acme --search <term>\n  skill browse\n  skill sync @acme\n  skill apply"
+    after_help = "Skill lifecycle:\n  1) Browse a repo to install skills (skill browse <repo>).\n     - First browse of a repo adds it as a trusted source.\n  2) Browse installed skills to uninstall (skill browse).\n     - Select skills and press Enter to uninstall.\n  3) Keep installed skills in sync with their source (skill sync).\n  Installed skills stay linked to their source of truth.\n\nSources:\n  repo:  https://github.com/owner/repo or owner/repo\n  saved: @source-id\n\nExamples:\n  skill browse https://github.com/acme/skills\n  skill browse @acme --search <term>\n  skill browse\n  skill sync\n  skill sync @acme\n  skill apply"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -21,8 +21,8 @@ pub enum Commands {
     )]
     Browse(skill_features::browse::BrowseArgs),
     #[command(
-        about = "Sync a source: install missing and update existing",
-        long_about = "Sync a source: install missing and update existing skills.\n\nBehavior:\n- Fetches latest repo HEAD and rebuilds the index if it changed.\n- Installs missing skills and updates changed ones for this source.\n- Selection state comes from the last browse (all skills or a selected list).\n- Uninstalled skills are removed from the selection so they won't be reinstalled.",
+        about = "Sync sources: install missing and update existing",
+        long_about = "Sync sources: install missing and update existing skills.\n\nBehavior:\n- With no source argument, syncs all configured sources.\n- With a source argument, syncs only that source.\n- Fetches latest repo HEAD and rebuilds the index if it changed.\n- Installs missing skills and updates changed ones per source selection.\n- Selection state comes from the last browse (all skills or a selected list).\n- Uninstalled skills are removed from the selection so they won't be reinstalled.\n- In no-arg mode, sync continues across sources and exits non-zero if any source fails.",
         display_order = 20
     )]
     Sync(skill_features::sync::SyncArgs),
