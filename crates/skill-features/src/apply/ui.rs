@@ -301,7 +301,7 @@ fn default_tracking_preferences(
                 .initial
                 .get(&skill.key)
                 .copied()
-                .unwrap_or(TrackingPreference::Tracked);
+                .unwrap_or(TrackingPreference::NotTracked);
             (skill.key.clone(), preference)
         })
         .collect()
@@ -336,7 +336,7 @@ fn toggle_tracking(
             .initial
             .get(&skill.key)
             .copied()
-            .unwrap_or(TrackingPreference::Tracked)
+            .unwrap_or(TrackingPreference::NotTracked)
     });
     *entry = match entry {
         TrackingPreference::Tracked => TrackingPreference::NotTracked,
@@ -559,7 +559,7 @@ fn tracking_is_available(context: &SkillsRenderContext<'_>) -> bool {
 
 fn git_tracking_hint(context: &SkillsRenderContext<'_>) -> &'static str {
     if tracking_is_available(context) {
-        "Press g to toggle Git tracking."
+        "Press g to toggle Git tracking (default: not tracked)."
     } else {
         "Git tracking unavailable for this target."
     }
@@ -582,7 +582,7 @@ fn tracking_status_span(
                 .for_target(context.target)
                 .and_then(|target| target.initial.get(&skill.key).copied())
         })
-        .unwrap_or(TrackingPreference::Tracked);
+        .unwrap_or(TrackingPreference::NotTracked);
 
     match preference {
         TrackingPreference::Tracked => Some(Span::from("(tracked)").dim()),

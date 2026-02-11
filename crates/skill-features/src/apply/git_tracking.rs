@@ -7,6 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 pub const MANAGED_START: &str = "# >>> skill managed git tracking >>>";
 pub const MANAGED_END: &str = "# <<< skill managed git tracking <<<";
+const TRACKED_PREFIX: &str = "# tracked: ";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrackingPreference {
@@ -43,13 +44,11 @@ impl GitTrackingManager {
     }
 
     pub fn preference_for_path(&self, repo_relative_path: &str) -> Result<TrackingPreference> {
-        if self.document.managed_entries.contains(repo_relative_path) {
-            return Ok(TrackingPreference::NotTracked);
+        // Default is not tracked (ignored) unless explicitly marked tracked.
+        if self.document.tracked_entries.contains(repo_relative_path) {
+            return Ok(TrackingPreference::Tracked);
         }
-        if git::is_path_ignored(&self.repo_root, Path::new(repo_relative_path))? {
-            return Ok(TrackingPreference::NotTracked);
-        }
-        Ok(TrackingPreference::Tracked)
+        Ok(TrackingPreference::NotTracked)
     }
 
     pub fn set_preference(
@@ -137,6 +136,7 @@ fn repo_relative_path(repo_root: &Path, full_path: &Path) -> Result<String> {
 #[derive(Debug, Clone)]
 struct ExcludeDocument {
     external_lines: Vec<String>,
+    tracked_entries: BTreeSet<String>,
     managed_entries: BTreeSet<String>,
 }
 
@@ -150,6 +150,7 @@ impl ExcludeDocument {
         let Some(start_idx) = lines.iter().position(|line| line.trim() == MANAGED_START) else {
             return Self {
                 external_lines: lines,
+                tracked_entries: BTreeSet::new(),
                 managed_entries: BTreeSet::new(),
             };
         };
@@ -160,14 +161,23 @@ impl ExcludeDocument {
         else {
             return Self {
                 external_lines: lines,
+                tracked_entries: BTreeSet::new(),
                 managed_entries: BTreeSet::new(),
             };
         };
         let end_idx = start_idx + 1 + end_rel;
 
         let mut managed_entries = BTreeSet::new();
+        let mut tracked_entries = BTreeSet::new();
         for line in &lines[start_idx + 1..end_idx] {
             let value = line.trim();
+            if value.starts_with(TRACKED_PREFIX) {
+                let path = value.trim_start_matches(TRACKED_PREFIX).trim();
+                if !path.is_empty() {
+                    tracked_entries.insert(path.to_string());
+                }
+                continue;
+            }
             if value.is_empty() || value.starts_with('#') {
                 continue;
             }
@@ -180,6 +190,7 @@ impl ExcludeDocument {
 
         Self {
             external_lines,
+            tracked_entries,
             managed_entries,
         }
     }
@@ -187,11 +198,16 @@ impl ExcludeDocument {
     fn render(&self) -> String {
         let mut lines = self.external_lines.clone();
 
-        if !self.managed_entries.is_empty() {
+        if !self.tracked_entries.is_empty() || !self.managed_entries.is_empty() {
             if !lines.is_empty() && !lines.last().is_some_and(|line| line.is_empty()) {
                 lines.push(String::new());
             }
             lines.push(MANAGED_START.to_string());
+            lines.extend(
+                self.tracked_entries
+                    .iter()
+                    .map(|path| format!("{TRACKED_PREFIX}{path}")),
+            );
             lines.extend(self.managed_entries.iter().cloned());
             lines.push(MANAGED_END.to_string());
         }
@@ -202,11 +218,15 @@ impl ExcludeDocument {
     }
 
     fn set_not_tracked(&mut self, repo_relative_path: &str) -> bool {
-        self.managed_entries.insert(repo_relative_path.to_string())
+        let removed_tracked = self.tracked_entries.remove(repo_relative_path);
+        let inserted_managed = self.managed_entries.insert(repo_relative_path.to_string());
+        removed_tracked || inserted_managed
     }
 
     fn set_tracked(&mut self, repo_relative_path: &str) -> bool {
-        self.managed_entries.remove(repo_relative_path)
+        let removed_managed = self.managed_entries.remove(repo_relative_path);
+        let inserted_tracked = self.tracked_entries.insert(repo_relative_path.to_string());
+        removed_managed || inserted_tracked
     }
 
     fn remove_managed_entry(&mut self, repo_relative_path: &str) -> bool {
@@ -273,5 +293,19 @@ mod tests {
         assert!(first);
         assert!(!second);
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn when_setting_tracked_should_render_as_comment_line() {
+        let mut document = ExcludeDocument::parse("");
+
+        let changed = document.set_tracked(".codex/skills/acme__echo-skill");
+
+        assert!(changed);
+        let rendered = document.render();
+        assert!(rendered.contains(MANAGED_START));
+        assert!(rendered.contains("# tracked: .codex/skills/acme__echo-skill"));
+        // Tracked entries should not appear as ignore patterns.
+        assert!(!rendered.contains("\n.codex/skills/acme__echo-skill\n"));
     }
 }

@@ -382,7 +382,7 @@ fn build_tracking_context(
                     .repo_relative_path(&dest)
                     .ok()
                     .and_then(|path| manager.preference_for_path(&path).ok())
-                    .unwrap_or(TrackingPreference::Tracked);
+                    .unwrap_or(TrackingPreference::NotTracked);
                 initial.insert(skill.key.clone(), preference);
             }
         }
@@ -527,7 +527,11 @@ fn apply_selection(
                     }
                 }
             };
-            let tracking_pref = selection.tracking.get(&skill.key).copied();
+            let tracking_pref = selection.tracking.get(&skill.key).copied().or_else(|| {
+                tracking
+                    .for_target(target_key)
+                    .and_then(|target| target.initial.get(&skill.key).copied())
+            });
 
             match mode {
                 ActionMode::Apply => {
@@ -1093,7 +1097,7 @@ mod tests {
 
         let exclude = fs::read_to_string(repo_root.join(".git/info/exclude"))?;
         assert!(exclude.contains(MANAGED_START));
-        assert!(exclude.contains(".codex/skills/acme__echo"));
+        assert!(exclude.contains("\n.codex/skills/acme__echo\n"));
 
         Ok(())
     }
@@ -1160,7 +1164,8 @@ mod tests {
         assert!(results.tracking_failed.is_empty());
 
         let exclude = fs::read_to_string(repo_root.join(".git/info/exclude"))?;
-        assert!(!exclude.contains(".codex/skills/acme__echo"));
+        assert!(exclude.contains("# tracked: .codex/skills/acme__echo"));
+        assert!(!exclude.contains("\n.codex/skills/acme__echo\n"));
 
         Ok(())
     }
@@ -1227,7 +1232,7 @@ mod tests {
         assert!(results.tracking_failed.is_empty());
 
         let exclude = fs::read_to_string(repo_root.join(".git/info/exclude"))?;
-        assert!(!exclude.contains(".codex/skills/acme__echo"));
+        assert!(!exclude.contains("\n.codex/skills/acme__echo\n"));
 
         Ok(())
     }
