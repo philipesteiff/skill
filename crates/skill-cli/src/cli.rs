@@ -28,7 +28,7 @@ pub enum Commands {
     Sync(skill_features::sync::SyncArgs),
     #[command(
         about = "Apply installed skills to agent dirs (TUI or CLI)",
-        long_about = "Apply installed skills to agent directories.\n\nBehavior:\n- In TUI mode, pick one target then choose skills.\n- In apply mode, selected skills are applied and unselected applied skills are removed.\n- In TUI mode for project targets inside a Git repo, press `g` to toggle per-skill Git tracking (defaults to not tracked).\n- Skills marked as not tracked are written to local `.git/info/exclude` (not committed).",
+        long_about = "Apply installed skills to agent directories.\n\nBehavior:\n- In TUI mode, pick one target then choose skills.\n- In TUI apply mode, selection is desired state: selected skills are applied and unselected previously-applied skills for that target are removed.\n- In CLI mode (`--no-tui` or explicit `--targets/--skills`), commands are explicit lists: only listed skills are changed; other applied skills are left unchanged unless explicitly `--unapply`ed.\n- In TUI mode for project targets inside a Git repo, press `g` to toggle per-skill Git tracking (defaults to not tracked).\n- Skills marked as not tracked are written to local `.git/info/exclude` (not committed).",
         display_order = 30
     )]
     Apply(skill_features::apply::ApplyArgs),

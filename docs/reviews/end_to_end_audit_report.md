@@ -37,7 +37,7 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 | H-02 | high | business-logic | Duplicate skill names in one source collapse into one lock entry |
 | H-03 | high | missing-flow | Uninstall flow does not clean applied targets or applied index |
 | M-01 | medium | edge-case | Raw FTS query causes SQL failure for malformed search |
-| M-02 | medium | usage-gap | `apply` help text implies reconciliation in CLI mode, but CLI mode is additive |
+| M-02 | medium | usage-gap | `apply` help text implies reconciliation in CLI mode, but CLI mode is additive [FIXED 2026-02-11] |
 | M-03 | medium | logical-consistency | `apply` exits with status `0` even when operations fail [FIXED 2026-02-11] |
 | M-04 | medium | ux-logic | Skipped apply actions are not shown in output [FIXED 2026-02-11] |
 | M-05 | medium | ux-logic | Browse `select all` ignores active filter and selects hidden rows |
@@ -181,6 +181,14 @@ Suggested tests:
 ### M-02: `apply` help text implies reconciliation in CLI mode, but CLI mode is additive
 Severity: `medium`  
 Type: `usage-gap`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-cli/src/cli.rs` now clearly distinguishes TUI desired-state behavior from CLI explicit-list behavior.
+- `/Users/philipesteiff/Projects/skill/crates/skill-cli/tests/help.rs` now includes `when_showing_apply_help_should_describe_tui_vs_cli_modes`.
+
+Verification:
+- `cargo test -p skill-cli help` passes and asserts the new help copy.
 
 What is happening:
 - Help text states: unselected applied skills are removed in apply mode.
