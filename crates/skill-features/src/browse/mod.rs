@@ -2,6 +2,7 @@ use anyhow::{Result, anyhow};
 use clap::Args;
 use std::collections::HashSet;
 
+use crate::applied_index::AppliedIndex;
 use skill_core::config::{self, SelectionConfig};
 use skill_core::installer::{InstallTarget, Installer};
 use skill_core::lockfile;
@@ -196,6 +197,7 @@ fn delete_installed(paths: &Paths, config: &mut config::Config, keys: Vec<String
 
     let mut lockfile = lockfile::load(paths)?;
     let mut removed_paths: HashMap<String, Vec<String>> = HashMap::new();
+    let mut removed_skills = Vec::new();
 
     for key in keys {
         let Some((source_id, name)) = parse_installed_key(&key) else {
@@ -207,6 +209,7 @@ fn delete_installed(paths: &Paths, config: &mut config::Config, keys: Vec<String
                 .entry(entry.source_id)
                 .or_default()
                 .push(entry.path);
+            removed_skills.push((source_id, name));
         }
     }
 
@@ -233,7 +236,16 @@ fn delete_installed(paths: &Paths, config: &mut config::Config, keys: Vec<String
         update_selection_after_delete(&mut source.selection, removed, &remaining);
     }
 
+    let mut applied_index = AppliedIndex::load(paths)?;
+    for (source_id, name) in removed_skills {
+        for entry in applied_index.entries_for_skill(&source_id, &name) {
+            remove_dir_if_exists(&entry.target_dir)?;
+            applied_index.remove_target(&entry.target_dir);
+        }
+    }
+
     lockfile::save(paths, &lockfile)?;
+    applied_index.save(paths)?;
     config::save(paths, config)?;
     Ok(())
 }
@@ -310,4 +322,79 @@ fn installed_paths(paths: &Paths, source_id: &str) -> Result<HashSet<String>> {
         .filter(|entry| entry.source_id == source_id)
         .map(|entry| entry.path)
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::applied_index::{AppliedEntry, AppliedIndex};
+    use skill_core::config::{Config, SourceConfig};
+    use skill_core::lockfile::{LockedSkill, Lockfile};
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    fn build_paths(base: PathBuf) -> Paths {
+        Paths::from_base(base)
+    }
+
+    #[test]
+    fn when_uninstalling_should_remove_applied_targets_and_index_entries() -> Result<()> {
+        let temp = tempdir()?;
+        let paths = build_paths(temp.path().to_path_buf());
+        paths.ensure_base_dirs()?;
+
+        let install_dir = temp.path().join("installed/acme/echo/latest");
+        std::fs::create_dir_all(&install_dir)?;
+        std::fs::write(install_dir.join("SKILL.md"), "skill")?;
+
+        let lock = Lockfile {
+            skills: vec![LockedSkill {
+                source_id: "acme".to_string(),
+                name: "echo".to_string(),
+                resolved_version: None,
+                resolved_commit: "deadbeef".to_string(),
+                content_hash: Some("hash".to_string()),
+                path: "skills/echo".to_string(),
+                install_dir: install_dir.to_string_lossy().to_string(),
+                updated_at: Some("2026-01-01".to_string()),
+            }],
+        };
+        lockfile::save(&paths, &lock)?;
+
+        let target_dir = temp.path().join("project/.claude/skills/acme__echo");
+        std::fs::create_dir_all(&target_dir)?;
+        std::fs::write(target_dir.join("SKILL.md"), "applied")?;
+
+        let mut applied_index = AppliedIndex::default();
+        applied_index.upsert(AppliedEntry {
+            source_id: "acme".to_string(),
+            name: "echo".to_string(),
+            target_dir: target_dir.clone(),
+            install_dir: install_dir.clone(),
+            resolved_commit: "deadbeef".to_string(),
+            content_hash: Some("hash".to_string()),
+            updated_at: Some("2026-01-01".to_string()),
+        });
+        applied_index.save(&paths)?;
+
+        let mut config = Config {
+            sources: vec![SourceConfig {
+                id: "acme".to_string(),
+                url: "https://github.com/acme/skills.git".to_string(),
+                selection: SelectionConfig::All,
+            }],
+        };
+
+        delete_installed(&paths, &mut config, vec!["acme/echo".to_string()])?;
+
+        let updated_lock = lockfile::load(&paths)?;
+        assert!(updated_lock.skills.is_empty());
+        assert!(!install_dir.exists());
+        assert!(!target_dir.exists());
+
+        let updated_index = AppliedIndex::load(&paths)?;
+        assert!(updated_index.entries_for_skill("acme", "echo").is_empty());
+
+        Ok(())
+    }
 }

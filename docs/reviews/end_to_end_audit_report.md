@@ -35,7 +35,7 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 |---|---|---|---|
 | H-01 | high | business-logic | Mirror cache key collisions break source isolation |
 | H-02 | high | business-logic | Duplicate skill names in one source collapse into one lock entry |
-| H-03 | high | missing-flow | Uninstall flow does not clean applied targets or applied index |
+| H-03 | high | missing-flow | Uninstall flow does not clean applied targets or applied index [FIXED 2026-02-11] |
 | M-01 | medium | edge-case | Raw FTS query causes SQL failure for malformed search [FIXED 2026-02-11] |
 | M-02 | medium | usage-gap | `apply` help text implies reconciliation in CLI mode, but CLI mode is additive [FIXED 2026-02-11] |
 | M-03 | medium | logical-consistency | `apply` exits with status `0` even when operations fail [FIXED 2026-02-11] |
@@ -118,6 +118,20 @@ Suggested tests:
 ### H-03: Uninstall flow does not clean applied targets or applied index
 Severity: `high`  
 Type: `missing-flow`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-features/src/browse/mod.rs` now:
+  - tracks removed skills during uninstall,
+  - loads `applied.json`,
+  - removes matching applied target directories, and
+  - prunes matching applied-index entries.
+- Added uninstall cleanup regression test in `/Users/philipesteiff/Projects/skill/crates/skill-features/src/browse/mod.rs`:
+  - `when_uninstalling_should_remove_applied_targets_and_index_entries`.
+- `/Users/philipesteiff/Projects/skill/crates/skill-core/src/paths.rs` now exposes `Paths::from_base` to support deterministic path construction in unit tests.
+
+Verification:
+- `cargo test -p skill-features browse::tests::when_uninstalling_should_remove_applied_targets_and_index_entries` passes.
 
 What is happening:
 - Installed-skill uninstall removes lockfile entry and install dir.

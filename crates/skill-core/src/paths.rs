@@ -10,6 +10,10 @@ pub struct Paths {
 }
 
 impl Paths {
+    pub fn from_base(base: PathBuf) -> Self {
+        Self { base }
+    }
+
     pub fn new() -> Result<Self> {
         let base = if let Ok(val) = env::var("SKILLS_HOME") {
             PathBuf::from(val)
@@ -18,7 +22,7 @@ impl Paths {
         } else {
             return Err(anyhow!("HOME is not set"));
         };
-        Ok(Self { base })
+        Ok(Self::from_base(base))
     }
 
     pub fn ensure_base_dirs(&self) -> Result<()> {
