@@ -342,5 +342,58 @@ fn toggle_selected(items: &[BrowseItem], state: &mut BrowseState) {
 }
 
 fn select_all(items: &[BrowseItem], state: &mut BrowseState) {
-    state.selected = items.iter().map(|item| item.path.clone()).collect();
+    state.selected = state
+        .filtered
+        .iter()
+        .filter_map(|idx| items.get(*idx))
+        .map(|item| item.path.clone())
+        .collect();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(name: &str, description: &str, path: &str) -> BrowseItem {
+        BrowseItem {
+            name: name.to_string(),
+            description: description.to_string(),
+            updated_at: String::new(),
+            tags: Vec::new(),
+            path: path.to_string(),
+            installed: false,
+        }
+    }
+
+    #[test]
+    fn when_selecting_all_with_filter_should_select_only_visible_rows() {
+        let items = vec![
+            item("echo", "first", "skills/echo"),
+            item("sum", "math", "skills/sum"),
+            item("echo-plus", "second", "skills/echo-plus"),
+        ];
+        let initial_selected = HashSet::new();
+        let mut state =
+            BrowseState::new(&items, &initial_selected, Some("echo"), BrowseMode::Install);
+
+        select_all(&items, &mut state);
+
+        let expected = HashSet::from(["skills/echo".to_string(), "skills/echo-plus".to_string()]);
+        assert_eq!(state.selected, expected);
+    }
+
+    #[test]
+    fn when_selecting_all_without_filter_should_select_every_row() {
+        let items = vec![
+            item("echo", "first", "skills/echo"),
+            item("sum", "math", "skills/sum"),
+        ];
+        let initial_selected = HashSet::new();
+        let mut state = BrowseState::new(&items, &initial_selected, None, BrowseMode::Install);
+
+        select_all(&items, &mut state);
+
+        let expected = HashSet::from(["skills/echo".to_string(), "skills/sum".to_string()]);
+        assert_eq!(state.selected, expected);
+    }
 }

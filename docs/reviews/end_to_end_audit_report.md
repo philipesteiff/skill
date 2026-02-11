@@ -40,7 +40,7 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 | M-02 | medium | usage-gap | `apply` help text implies reconciliation in CLI mode, but CLI mode is additive [FIXED 2026-02-11] |
 | M-03 | medium | logical-consistency | `apply` exits with status `0` even when operations fail [FIXED 2026-02-11] |
 | M-04 | medium | ux-logic | Skipped apply actions are not shown in output [FIXED 2026-02-11] |
-| M-05 | medium | ux-logic | Browse `select all` ignores active filter and selects hidden rows |
+| M-05 | medium | ux-logic | Browse `select all` ignores active filter and selects hidden rows [FIXED 2026-02-11] |
 | M-06 | medium | missing-flow | Apply TUI can start with no selected target and Enter does nothing |
 | L-01 | low | documentation/usage-gap | README usage is inconsistent with required sync argument |
 | L-02 | low | documentation/usage-gap | Playground guide documents removed commands |
@@ -303,6 +303,16 @@ Suggested tests:
 ### M-05: Browse `select all` ignores active filter and selects hidden rows
 Severity: `medium`  
 Type: `ux-logic`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-core/src/ui/browse.rs` now scopes `select_all` to the currently filtered indices, so `a` selects only visible rows.
+- Added browse UI unit tests:
+  - `when_selecting_all_with_filter_should_select_only_visible_rows`
+  - `when_selecting_all_without_filter_should_select_every_row`
+
+Verification:
+- `cargo test -p skill-core ui::browse` passes with the new select-all filter assertions.
 
 What is happening:
 - `a` key selects every item in source list, not only currently filtered rows.
