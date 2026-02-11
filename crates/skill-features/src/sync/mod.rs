@@ -17,42 +17,108 @@ use skill_core::util::{copy_dir_recursive, remove_dir_if_exists};
 
 #[derive(Args, Clone, Debug)]
 pub struct SyncArgs {
-    pub source: String,
+    pub source: Option<String>,
 }
 
 pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
     paths.ensure_base_dirs()?;
     let mut config = config::load(paths)?;
-    let input = args.source;
-    let (source_cfg, created) = config::resolve_source(&mut config, &input)?;
-    if created {
-        config::save(paths, &config)?;
+    match args.source {
+        Some(input) => {
+            let (source_cfg, created) = config::resolve_source(&mut config, &input)?;
+            if created {
+                config::save(paths, &config)?;
+            }
+            sync_one_source(paths, &source_cfg, &format!("skill sync {input}"))
+        }
+        None => sync_all_sources(paths, &config.sources),
+    }
+}
+
+fn sync_all_sources(paths: &Paths, sources: &[config::SourceConfig]) -> Result<()> {
+    if sources.is_empty() {
+        return Err(anyhow!(
+            "no configured sources; add one with `skill browse <repo>`"
+        ));
+    }
+    let total = sources.len();
+    let mut succeeded = 0usize;
+    let mut failed = Vec::new();
+    for source_cfg in sources {
+        let context = format!("skill sync @{}", source_cfg.id);
+        match sync_one_source(paths, source_cfg, &context) {
+            Ok(()) => {
+                succeeded += 1;
+            }
+            Err(err) => {
+                eprintln!("source @{} failed: {err}", source_cfg.id);
+                failed.push(source_cfg.id.clone());
+            }
+        }
     }
 
-    let mut log_ui = LogUi::new(format!("skill sync {input}"))?;
-    if let Err(err) = source::ensure_index(paths, &source_cfg, &mut log_ui) {
-        log_ui.finish()?;
-        return Err(err);
+    if failed.is_empty() {
+        let mut reporter = Reporter::new()?;
+        reporter.set_context("skill sync")?;
+        reporter.finish(format!(
+            "Sync all complete (sources total {total}, succeeded {succeeded}, failed 0)"
+        ))?;
+        return Ok(());
     }
+
+    let failed_count = failed.len();
+    let failed_sources = failed
+        .iter()
+        .map(|id| format!("@{id}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut reporter = Reporter::new()?;
+    reporter.set_context("skill sync")?;
+    reporter.line(format!("Failed sources: {failed_sources}"))?;
+    reporter.finish(format!(
+        "Sync all completed with failures (sources total {total}, succeeded {succeeded}, failed {failed_count})"
+    ))?;
+    Err(anyhow!(
+        "sync failed for {failed_count} source(s): {failed_sources}"
+    ))
+}
+
+fn sync_one_source(
+    paths: &Paths,
+    source_cfg: &config::SourceConfig,
+    sync_context: &str,
+) -> Result<()> {
+    let mut log_ui = LogUi::new(sync_context.to_string())?;
+    let result = sync_one_source_inner(paths, source_cfg, sync_context, &mut log_ui);
+    let finish = log_ui.finish();
+    finish?;
+    result
+}
+
+fn sync_one_source_inner(
+    paths: &Paths,
+    source_cfg: &config::SourceConfig,
+    sync_context: &str,
+    output: &mut impl Output,
+) -> Result<()> {
+    source::ensure_index(paths, source_cfg, output)?;
 
     let skills = source_index::list_all(paths, &source_cfg.id)?;
     let (desired, missing) = select_skills(&skills, &source_cfg.selection);
     if desired.is_empty() {
-        log_ui.finish()?;
         return Err(anyhow!(
             "no skills selected; run skill browse to choose skills"
         ));
     }
     if !missing.is_empty() {
-        log_ui.line(format!(
+        output.line(format!(
             "Warning: {} selected skill(s) not found in source",
             missing.len()
         ))?;
         for path in missing {
-            log_ui.line(format!("Missing: {path}"))?;
+            output.line(format!("Missing: {path}"))?;
         }
     }
-    log_ui.finish()?;
 
     let lock = lockfile::load(paths)?;
     let installed = lock
@@ -79,18 +145,18 @@ pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
             }
             Some(_) => {
                 updated_count += 1;
-                targets.push(to_target(&source_cfg, &skill));
+                targets.push(to_target(source_cfg, &skill));
             }
             None => {
                 installed_count += 1;
-                targets.push(to_target(&source_cfg, &skill));
+                targets.push(to_target(source_cfg, &skill));
             }
         }
     }
 
     if targets.is_empty() {
         let mut reporter = Reporter::new()?;
-        reporter.set_context("skill sync")?;
+        reporter.set_context(sync_context)?;
         reporter.finish(format!("Up to date (skipped {skipped_count})"))?;
         return Ok(());
     }
@@ -98,7 +164,7 @@ pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
     let refresh_targets = targets.clone();
     let installer = Installer::new(paths);
     let mut reporter = Reporter::new()?;
-    reporter.set_context("skill sync")?;
+    reporter.set_context(sync_context)?;
     installer.install_targets(targets, &mut reporter)?;
     let refresh_summary = match refresh_applied(paths, &mut reporter, &refresh_targets) {
         Ok(summary) => summary,
