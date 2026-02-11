@@ -345,25 +345,14 @@ fn build_tracking_context(
     targets: &[AgentTarget],
     skills: &[ApplySkill],
 ) -> TrackingContext {
-    let repo_root = git::repo_root(cwd).ok();
-    let manager = repo_root
+    let git_repo_root = git::repo_root(cwd).ok();
+    let manager = git_repo_root
         .as_ref()
         .and_then(|root| GitTrackingManager::load(root).ok());
     let mut by_target = HashMap::new();
 
     for target in targets {
-        let Some(repo_root) = manager.as_ref().map(GitTrackingManager::repo_root) else {
-            by_target.insert(
-                target.key.clone(),
-                TargetTracking {
-                    repo_root: None,
-                    initial: HashMap::new(),
-                },
-            );
-            continue;
-        };
-
-        if target.key.scope != Scope::Project || !target.base_dir.starts_with(repo_root) {
+        if target.key.scope != Scope::Project {
             by_target.insert(
                 target.key.clone(),
                 TargetTracking {
@@ -375,7 +364,10 @@ fn build_tracking_context(
         }
 
         let mut initial = HashMap::new();
-        if let Some(manager) = manager.as_ref() {
+        // Tracking is available for project targets in a Git repo, even if we can't
+        // read existing exclude state (for example, on first apply before any managed
+        // block exists). We'll fall back to the default preference in the UI.
+        if let (Some(manager), Some(_repo_root)) = (manager.as_ref(), git_repo_root.as_ref()) {
             for skill in skills {
                 let dest = dest_dir(target, &skill.key);
                 let preference = manager
@@ -390,7 +382,7 @@ fn build_tracking_context(
         by_target.insert(
             target.key.clone(),
             TargetTracking {
-                repo_root: Some(repo_root.to_path_buf()),
+                repo_root: git_repo_root.clone(),
                 initial,
             },
         );

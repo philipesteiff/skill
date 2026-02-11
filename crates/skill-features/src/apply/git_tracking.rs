@@ -35,10 +35,6 @@ impl GitTrackingManager {
         })
     }
 
-    pub fn repo_root(&self) -> &Path {
-        &self.repo_root
-    }
-
     pub fn repo_relative_path(&self, full_path: &Path) -> Result<String> {
         repo_relative_path(&self.repo_root, full_path)
     }
