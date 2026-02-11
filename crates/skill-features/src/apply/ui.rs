@@ -91,16 +91,10 @@ fn run_apply_loop(
 ) -> Result<Option<ApplySelection>> {
     let mut step = Step::Targets;
     // Single target selection
-    let mut selected_target: Option<TargetKey> = targets
-        .iter()
-        .find(|target| target.default_selected)
-        .map(|target| target.key.clone());
+    let mut selected_target = initial_selected_target(targets);
 
     let mut target_state = ListState::default();
-    let initial_index = targets
-        .iter()
-        .position(|t| Some(&t.key) == selected_target.as_ref())
-        .unwrap_or(0);
+    let initial_index = initial_target_index(targets, selected_target.as_ref());
     target_state.select(Some(initial_index));
 
     let mut skill_state = ListState::default();
@@ -223,6 +217,21 @@ fn run_apply_loop(
             }
         }
     }
+}
+
+fn initial_selected_target(targets: &[AgentTarget]) -> Option<TargetKey> {
+    targets
+        .iter()
+        .find(|target| target.default_selected && target.enabled)
+        .or_else(|| targets.iter().find(|target| target.enabled))
+        .map(|target| target.key.clone())
+}
+
+fn initial_target_index(targets: &[AgentTarget], selected_target: Option<&TargetKey>) -> usize {
+    targets
+        .iter()
+        .position(|target| Some(&target.key) == selected_target)
+        .unwrap_or(0)
 }
 
 fn handle_list_keys(state: &mut ListState, len: usize, key: KeyCode) -> bool {
@@ -668,6 +677,23 @@ mod tests {
         }
     }
 
+    fn build_agent_target(
+        agent: AgentId,
+        scope: Scope,
+        enabled: bool,
+        default_selected: bool,
+    ) -> AgentTarget {
+        AgentTarget {
+            key: TargetKey { agent, scope },
+            label: String::new(),
+            short: String::new(),
+            base_dir: PathBuf::from("/tmp"),
+            detected: false,
+            enabled,
+            default_selected,
+        }
+    }
+
     #[test]
     fn when_toggling_tracking_should_flip_state_for_highlighted_skill() {
         let skill = build_skill("echo-skill");
@@ -745,5 +771,42 @@ mod tests {
 
         let status = tracking_status_span(&context, &skill).expect("tracking status");
         assert_eq!(status.content, "(tracking unavailable)");
+    }
+
+    #[test]
+    fn when_no_default_target_should_select_first_enabled_target() {
+        let targets = vec![
+            build_agent_target(AgentId::ClaudeCode, Scope::Project, false, false),
+            build_agent_target(AgentId::Codex, Scope::Project, true, false),
+            build_agent_target(AgentId::Cursor, Scope::Project, true, false),
+        ];
+
+        let selected = initial_selected_target(&targets);
+        let index = initial_target_index(&targets, selected.as_ref());
+
+        let expected = TargetKey {
+            agent: AgentId::Codex,
+            scope: Scope::Project,
+        };
+        assert_eq!(selected, Some(expected));
+        assert_eq!(index, 1);
+    }
+
+    #[test]
+    fn when_default_target_is_enabled_should_prefer_default() {
+        let targets = vec![
+            build_agent_target(AgentId::ClaudeCode, Scope::Project, true, false),
+            build_agent_target(AgentId::Codex, Scope::Project, true, true),
+        ];
+
+        let selected = initial_selected_target(&targets);
+        let index = initial_target_index(&targets, selected.as_ref());
+
+        let expected = TargetKey {
+            agent: AgentId::Codex,
+            scope: Scope::Project,
+        };
+        assert_eq!(selected, Some(expected));
+        assert_eq!(index, 1);
     }
 }

@@ -41,7 +41,7 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 | M-03 | medium | logical-consistency | `apply` exits with status `0` even when operations fail [FIXED 2026-02-11] |
 | M-04 | medium | ux-logic | Skipped apply actions are not shown in output [FIXED 2026-02-11] |
 | M-05 | medium | ux-logic | Browse `select all` ignores active filter and selects hidden rows [FIXED 2026-02-11] |
-| M-06 | medium | missing-flow | Apply TUI can start with no selected target and Enter does nothing |
+| M-06 | medium | missing-flow | Apply TUI can start with no selected target and Enter does nothing [FIXED 2026-02-11] |
 | L-01 | low | documentation/usage-gap | README usage is inconsistent with required sync argument |
 | L-02 | low | documentation/usage-gap | Playground guide documents removed commands |
 
@@ -339,6 +339,18 @@ Suggested tests:
 ### M-06: Apply TUI can start with no selected target and Enter does nothing
 Severity: `medium`  
 Type: `missing-flow`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-features/src/apply/ui.rs` now initializes target selection to:
+  - enabled default target when present, otherwise
+  - first enabled target.
+- Added UI-state unit tests:
+  - `when_no_default_target_should_select_first_enabled_target`
+  - `when_default_target_is_enabled_should_prefer_default`
+
+Verification:
+- `cargo test -p skill-features apply::ui` passes with startup-selection coverage.
 
 What is happening:
 - If no target is `default_selected`, `selected_target` is `None`.
