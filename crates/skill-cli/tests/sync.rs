@@ -237,3 +237,55 @@ fn when_syncing_source_with_root_and_nested_skills_should_install_all() -> Resul
 
     Ok(())
 }
+
+#[test]
+fn when_syncing_should_refresh_applied_copies() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_dir = temp.path().join("skills-repo");
+    fs::create_dir_all(&repo_dir)?;
+    write_skill(&repo_dir, "alpha-skill", "Alpha v1")?;
+    init_repo(&repo_dir, "Initial skills")?;
+
+    let repo_url = format!("file://{}", repo_dir.display());
+    write_config(&skills_home, "acme-skills", &repo_url, SelectionConfig::All)?;
+
+    let output = run_skill_with_env(&["sync", "@acme-skills"], &skills_home, None, &[])?;
+    assert!(output.status.success());
+
+    let project_dir = temp.path().join("project");
+    fs::create_dir_all(&project_dir)?;
+    let output = run_skill_with_env(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme-skills/alpha-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+        &[],
+    )?;
+    assert!(output.status.success());
+
+    let applied_dir = project_dir
+        .join(".claude/skills")
+        .join("acme-skills__alpha-skill");
+    let applied_contents = fs::read_to_string(applied_dir.join("SKILL.md"))?;
+    assert!(applied_contents.contains("Alpha v1"));
+
+    write_skill(&repo_dir, "alpha-skill", "Alpha v2")?;
+    git_commit_all(&repo_dir, "Update alpha")?;
+
+    let output = run_skill_with_env(&["sync", "@acme-skills"], &skills_home, None, &[])?;
+    assert!(output.status.success());
+
+    let applied_contents = fs::read_to_string(applied_dir.join("SKILL.md"))?;
+    assert!(applied_contents.contains("Alpha v2"));
+
+    Ok(())
+}

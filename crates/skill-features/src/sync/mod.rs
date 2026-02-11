@@ -1,7 +1,9 @@
 use anyhow::{Result, anyhow};
 use clap::Args;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
+use crate::applied_index::{AppliedEntry, AppliedIndex};
 use skill_core::config::{self, SelectionConfig};
 use skill_core::installer::{InstallTarget, Installer};
 use skill_core::lockfile;
@@ -11,6 +13,7 @@ use skill_core::progress::Reporter;
 use skill_core::source;
 use skill_core::source_index::{self, IndexedSkill};
 use skill_core::ui::log::LogUi;
+use skill_core::util::{copy_dir_recursive, remove_dir_if_exists};
 
 #[derive(Args, Clone, Debug)]
 pub struct SyncArgs {
@@ -92,15 +95,136 @@ pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
         return Ok(());
     }
 
+    let refresh_targets = targets.clone();
     let installer = Installer::new(paths);
     let mut reporter = Reporter::new()?;
     reporter.set_context("skill sync")?;
     installer.install_targets(targets, &mut reporter)?;
+    let refresh_summary = match refresh_applied(paths, &mut reporter, &refresh_targets) {
+        Ok(summary) => summary,
+        Err(err) => {
+            reporter.line(format!("Warning: failed to refresh applied copies: {err}"))?;
+            RefreshSummary::default()
+        }
+    };
+    let refreshed_note = if refresh_summary.refreshed > 0 {
+        format!(", refreshed {}", refresh_summary.refreshed)
+    } else {
+        String::new()
+    };
     reporter.finish(format!(
-        "Sync complete (installed {installed_count}, updated {updated_count}, skipped {skipped_count})"
+        "Sync complete (installed {installed_count}, updated {updated_count}, skipped {skipped_count}{refreshed_note})"
     ))?;
 
     Ok(())
+}
+
+#[derive(Default)]
+struct RefreshSummary {
+    refreshed: usize,
+    missing: usize,
+}
+
+fn refresh_applied(
+    paths: &Paths,
+    reporter: &mut Reporter,
+    targets: &[InstallTarget],
+) -> Result<RefreshSummary> {
+    if targets.is_empty() {
+        return Ok(RefreshSummary::default());
+    }
+    let mut applied_index = match AppliedIndex::load(paths) {
+        Ok(index) => index,
+        Err(err) => {
+            reporter.line(format!(
+                "Warning: failed to read applied index; skipping refresh: {err}"
+            ))?;
+            return Ok(RefreshSummary::default());
+        }
+    };
+
+    let lock = lockfile::load(paths)?;
+    let lock_map = lock
+        .skills
+        .into_iter()
+        .map(|entry| ((entry.source_id.clone(), entry.name.clone()), entry))
+        .collect::<HashMap<_, _>>();
+
+    let mut summary = RefreshSummary::default();
+
+    for target in targets {
+        let Some(name) = target.expected_name.as_deref() else {
+            continue;
+        };
+        let key = (target.source_id.clone(), name.to_string());
+        let Some(locked) = lock_map.get(&key) else {
+            reporter.line(format!(
+                "Warning: missing lockfile entry for {}/{}",
+                target.source_id, name
+            ))?;
+            continue;
+        };
+        let entries = applied_index.entries_for_skill(&target.source_id, name);
+        if entries.is_empty() {
+            continue;
+        }
+        for entry in entries {
+            if !entry.target_dir.exists() {
+                summary.missing += 1;
+                reporter.line(format!(
+                    "Skipped missing applied target: {}",
+                    entry.target_dir.display()
+                ))?;
+                applied_index.remove_target(&entry.target_dir);
+                continue;
+            }
+            if is_symlink(&entry.target_dir)? {
+                reporter.line(format!(
+                    "Skipped symlinked applied target: {}",
+                    entry.target_dir.display()
+                ))?;
+                continue;
+            }
+            if !entry.target_dir.is_dir() {
+                reporter.line(format!(
+                    "Skipped non-directory applied target: {}",
+                    entry.target_dir.display()
+                ))?;
+                continue;
+            }
+
+            remove_dir_if_exists(&entry.target_dir)?;
+            copy_dir_recursive(Path::new(&locked.install_dir), &entry.target_dir)?;
+            applied_index.upsert(build_refresh_entry(&entry, locked));
+            summary.refreshed += 1;
+        }
+    }
+
+    applied_index.save(paths)?;
+    if summary.refreshed > 0 {
+        reporter.line(format!("Refreshed applied copies: {}", summary.refreshed))?;
+    }
+    Ok(summary)
+}
+
+fn build_refresh_entry(entry: &AppliedEntry, locked: &lockfile::LockedSkill) -> AppliedEntry {
+    AppliedEntry {
+        source_id: entry.source_id.clone(),
+        name: entry.name.clone(),
+        target_dir: entry.target_dir.clone(),
+        install_dir: Path::new(&locked.install_dir).to_path_buf(),
+        resolved_commit: locked.resolved_commit.clone(),
+        content_hash: locked.content_hash.clone(),
+        updated_at: locked.updated_at.clone(),
+    }
+}
+
+fn is_symlink(path: &Path) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let metadata = std::fs::symlink_metadata(path)?;
+    Ok(metadata.file_type().is_symlink())
 }
 
 fn select_skills(
