@@ -1,4 +1,5 @@
 use anyhow::{Result, anyhow};
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::config::SourceConfig;
@@ -55,10 +56,30 @@ pub fn ensure_index(
     if scan.skills.is_empty() {
         return Err(anyhow!("no valid SKILL.md found in source"));
     }
+    validate_unique_names(&scan.skills)?;
 
     source_index::rebuild_index(paths, &source.id, &scan.skills, output)?;
     std::fs::write(head_path, &head)?;
     Ok(head)
+}
+
+fn validate_unique_names(skills: &[IndexedSkill]) -> Result<()> {
+    let mut by_name: HashMap<&str, &str> = HashMap::new();
+    for skill in skills {
+        if let Some(existing_path) = by_name.get(skill.name.as_str()) {
+            if *existing_path != skill.path.as_str() {
+                return Err(anyhow!(
+                    "source contains duplicate skill name '{}' at '{}' and '{}'; skill names must be unique per source",
+                    skill.name,
+                    existing_path,
+                    skill.path
+                ));
+            }
+            continue;
+        }
+        by_name.insert(skill.name.as_str(), skill.path.as_str());
+    }
+    Ok(())
 }
 
 fn scan_repo_skills(mirror_path: &Path, head_commit: &str) -> Result<SourceScan> {
@@ -130,4 +151,46 @@ fn scan_repo_skills(mirror_path: &Path, head_commit: &str) -> Result<SourceScan>
         skills,
         invalid_skills,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn indexed_skill(name: &str, path: &str) -> IndexedSkill {
+        IndexedSkill {
+            name: name.to_string(),
+            description: String::new(),
+            tags: Vec::new(),
+            path: path.to_string(),
+            updated_at: "2026-01-01".to_string(),
+            commit: "deadbeef".to_string(),
+            content_hash: "hash".to_string(),
+            version: None,
+        }
+    }
+
+    #[test]
+    fn when_source_has_duplicate_skill_names_should_error() {
+        let skills = vec![
+            indexed_skill("echo", "skills/echo"),
+            indexed_skill("echo", "other/echo"),
+        ];
+
+        let error = validate_unique_names(&skills).expect_err("expected duplicate-name failure");
+        let message = error.to_string();
+        assert!(message.contains("duplicate skill name 'echo'"));
+        assert!(message.contains("skills/echo"));
+        assert!(message.contains("other/echo"));
+    }
+
+    #[test]
+    fn when_source_skill_names_are_unique_should_validate() {
+        let skills = vec![
+            indexed_skill("echo", "skills/echo"),
+            indexed_skill("sum", "skills/sum"),
+        ];
+
+        validate_unique_names(&skills).expect("unique names should validate");
+    }
 }

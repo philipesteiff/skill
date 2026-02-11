@@ -34,7 +34,7 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 | ID | Severity | Type | Title |
 |---|---|---|---|
 | H-01 | high | business-logic | Mirror cache key collisions break source isolation [FIXED 2026-02-11] |
-| H-02 | high | business-logic | Duplicate skill names in one source collapse into one lock entry |
+| H-02 | high | business-logic | Duplicate skill names in one source collapse into one lock entry [FIXED 2026-02-11] |
 | H-03 | high | missing-flow | Uninstall flow does not clean applied targets or applied index [FIXED 2026-02-11] |
 | M-01 | medium | edge-case | Raw FTS query causes SQL failure for malformed search [FIXED 2026-02-11] |
 | M-02 | medium | usage-gap | `apply` help text implies reconciliation in CLI mode, but CLI mode is additive [FIXED 2026-02-11] |
@@ -93,6 +93,17 @@ Suggested tests:
 ### H-02: Duplicate skill names in one source collapse into one lock entry
 Severity: `high`  
 Type: `business-logic`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-core/src/source.rs` now validates that skill names are unique within a source before rebuilding the index.
+- If duplicate names are detected at different paths, sync/indexing fails fast with a clear error instead of silently collapsing lockfile entries.
+- Added source validation tests:
+  - `when_source_has_duplicate_skill_names_should_error`
+  - `when_source_skill_names_are_unique_should_validate`
+
+Verification:
+- `cargo test -p skill-core source::tests` passes with duplicate-name guard coverage.
 
 What is happening:
 - Skills are uniquely keyed in lock/sync logic by `(source_id, name)` only.
