@@ -61,13 +61,18 @@ fn write_config(
     url: &str,
     selection: SelectionConfig,
 ) -> Result<()> {
-    let config = Config {
-        sources: vec![SourceConfig {
+    write_sources_config(
+        skills_home,
+        vec![SourceConfig {
             id: source_id.to_string(),
             url: url.to_string(),
             selection,
         }],
-    };
+    )
+}
+
+fn write_sources_config(skills_home: &Path, sources: Vec<SourceConfig>) -> Result<()> {
+    let config = Config { sources };
     let contents = serde_json::to_string_pretty(&config)?;
     fs::write(skills_home.join("config.json"), contents)?;
     Ok(())
@@ -286,6 +291,119 @@ fn when_syncing_should_refresh_applied_copies() -> Result<()> {
 
     let applied_contents = fs::read_to_string(applied_dir.join("SKILL.md"))?;
     assert!(applied_contents.contains("Alpha v2"));
+
+    Ok(())
+}
+
+#[test]
+fn when_syncing_without_source_should_sync_all_configured_sources() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_a = temp.path().join("skills-repo-a");
+    fs::create_dir_all(&repo_a)?;
+    write_skill(&repo_a, "alpha-skill", "Alpha")?;
+    let commit_a = init_repo(&repo_a, "Initial alpha")?;
+
+    let repo_b = temp.path().join("skills-repo-b");
+    fs::create_dir_all(&repo_b)?;
+    write_skill(&repo_b, "beta-skill", "Beta")?;
+    let commit_b = init_repo(&repo_b, "Initial beta")?;
+
+    write_sources_config(
+        &skills_home,
+        vec![
+            SourceConfig {
+                id: "source-a".to_string(),
+                url: format!("file://{}", repo_a.display()),
+                selection: SelectionConfig::All,
+            },
+            SourceConfig {
+                id: "source-b".to_string(),
+                url: format!("file://{}", repo_b.display()),
+                selection: SelectionConfig::All,
+            },
+        ],
+    )?;
+
+    let output = run_skill_with_env(&["sync"], &skills_home, None, &[])?;
+    assert!(output.status.success());
+
+    let lock = read_lock(&skills_home)?;
+    assert_eq!(lock.skills.len(), 2);
+    let alpha = lock
+        .skills
+        .iter()
+        .find(|entry| entry.source_id == "source-a" && entry.name == "alpha-skill")
+        .context("missing source-a alpha")?;
+    let beta = lock
+        .skills
+        .iter()
+        .find(|entry| entry.source_id == "source-b" && entry.name == "beta-skill")
+        .context("missing source-b beta")?;
+    assert_eq!(alpha.resolved_commit, commit_a);
+    assert_eq!(beta.resolved_commit, commit_b);
+
+    Ok(())
+}
+
+#[test]
+fn when_syncing_without_source_with_one_failure_should_continue_and_fail_at_end() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_ok = temp.path().join("skills-repo-ok");
+    fs::create_dir_all(&repo_ok)?;
+    write_skill(&repo_ok, "ok-skill", "OK")?;
+    init_repo(&repo_ok, "Initial ok")?;
+
+    write_sources_config(
+        &skills_home,
+        vec![
+            SourceConfig {
+                id: "broken".to_string(),
+                url: format!("file://{}", temp.path().join("missing-repo").display()),
+                selection: SelectionConfig::All,
+            },
+            SourceConfig {
+                id: "ok".to_string(),
+                url: format!("file://{}", repo_ok.display()),
+                selection: SelectionConfig::All,
+            },
+        ],
+    )?;
+
+    let output = run_skill_with_env(&["sync"], &skills_home, None, &[])?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("sync failed for 1 source(s): @broken"));
+
+    let lock = read_lock(&skills_home)?;
+    let ok_skill = lock
+        .skills
+        .iter()
+        .find(|entry| entry.source_id == "ok" && entry.name == "ok-skill");
+    assert!(
+        ok_skill.is_some(),
+        "expected successful source to still sync"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn when_syncing_without_source_and_no_configured_sources_should_error() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let output = run_skill_with_env(&["sync"], &skills_home, None, &[])?;
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no configured sources"));
 
     Ok(())
 }
