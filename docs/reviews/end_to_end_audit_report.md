@@ -36,7 +36,7 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 | H-01 | high | business-logic | Mirror cache key collisions break source isolation |
 | H-02 | high | business-logic | Duplicate skill names in one source collapse into one lock entry |
 | H-03 | high | missing-flow | Uninstall flow does not clean applied targets or applied index |
-| M-01 | medium | edge-case | Raw FTS query causes SQL failure for malformed search |
+| M-01 | medium | edge-case | Raw FTS query causes SQL failure for malformed search [FIXED 2026-02-11] |
 | M-02 | medium | usage-gap | `apply` help text implies reconciliation in CLI mode, but CLI mode is additive [FIXED 2026-02-11] |
 | M-03 | medium | logical-consistency | `apply` exits with status `0` even when operations fail [FIXED 2026-02-11] |
 | M-04 | medium | ux-logic | Skipped apply actions are not shown in output [FIXED 2026-02-11] |
@@ -151,6 +151,18 @@ Suggested tests:
 ### M-01: Raw FTS query causes SQL failure for malformed search
 Severity: `medium`  
 Type: `edge-case`
+Status: `FIXED (2026-02-11)`
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-core/src/source_index.rs` now executes search via `search_with_fallback`:
+  - tries FTS `MATCH` first, and
+  - falls back to escaped literal `LIKE` search when FTS query syntax is malformed.
+- Added source-index tests:
+  - `when_search_query_has_unmatched_quote_should_fallback_without_error`
+  - `when_search_query_is_valid_should_use_indexed_results`
+
+Verification:
+- `cargo test -p skill-core source_index` passes with malformed-query fallback coverage.
 
 What is happening:
 - Search query is passed directly to SQLite FTS `MATCH`.
