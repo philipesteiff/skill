@@ -553,6 +553,52 @@ fn when_applying_project_target_without_markers_should_still_apply() -> Result<(
 }
 
 #[test]
+fn when_reapplying_should_report_skipped_action() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let project_dir = temp.path().join("project-reapply-skipped");
+    fs::create_dir_all(&project_dir)?;
+
+    let first = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(first.status.success());
+
+    let second = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(second.status.success());
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(stdout.contains("Skipped:"));
+    assert!(stdout.contains("acme/echo-skill on Claude Code project"));
+
+    Ok(())
+}
+
+#[test]
 fn when_applying_over_unmanaged_directory_should_report_failure() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let skills_home = temp.path().join("skills-home");
@@ -579,9 +625,11 @@ fn when_applying_over_unmanaged_directory_should_report_failure() -> Result<()> 
         &skills_home,
         Some(&project_dir),
     )?;
-    assert!(output.status.success());
+    assert!(!output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("destination exists and is unmanaged"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("failed action(s)"));
 
     Ok(())
 }
@@ -617,9 +665,11 @@ fn when_applying_over_symlink_should_report_migration_hint() -> Result<()> {
         &skills_home,
         Some(&project_dir),
     )?;
-    assert!(output.status.success());
+    assert!(!output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("destination is a symlink"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("failed action(s)"));
 
     Ok(())
 }

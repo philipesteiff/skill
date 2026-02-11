@@ -180,6 +180,7 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
         &mut applied_index,
     )?;
     applied_index.save(paths)?;
+    let failed_count = results.failed.len();
 
     output.line("")?;
     if args.unapply {
@@ -217,6 +218,18 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
         for entry in results.removed {
             output.line(format!(
                 "  [-] {} from {}",
+                entry.skill.label(),
+                entry.target.label()
+            ))?;
+        }
+        output.line("")?;
+    }
+
+    if !results.skipped.is_empty() {
+        output.line("Skipped:")?;
+        for entry in results.skipped {
+            output.line(format!(
+                "  [=] {} on {}",
                 entry.skill.label(),
                 entry.target.label()
             ))?;
@@ -262,6 +275,12 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
             ))?;
         }
         output.line("")?;
+    }
+
+    if failed_count > 0 {
+        return Err(anyhow!(
+            "apply completed with {failed_count} failed action(s)"
+        ));
     }
 
     Ok(())
