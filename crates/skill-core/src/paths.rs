@@ -38,6 +38,10 @@ impl Paths {
         self.base.join("lock.json")
     }
 
+    pub fn applied_index_path(&self) -> PathBuf {
+        self.base.join("applied.json")
+    }
+
     pub fn sources_dir(&self) -> PathBuf {
         self.base.join("sources")
     }
