@@ -64,6 +64,9 @@ skill apply
 
 ![Select targets TUI](docs/screenshots/apply_selection.png)
 
+In the skills step, press `g` to toggle Git tracking per skill (project targets in a Git repo).
+`not tracked` skills are written to local `.git/info/exclude`, so personal preferences stay local and are not committed.
+
 ## Configuration
 By default, Skill stores data under `~/.skill`.
 

@@ -24,8 +24,11 @@ pub fn apply_targets_footer() -> Vec<FooterHint> {
     vec![MOVE, ("Enter", "select"), CANCEL]
 }
 
-pub fn apply_skills_footer(confirm_label: &'static str) -> Vec<FooterHint> {
-    vec![
+pub fn apply_skills_footer(
+    confirm_label: &'static str,
+    show_tracking_toggle: bool,
+) -> Vec<FooterHint> {
+    let mut hints = vec![
         MOVE,
         TOGGLE,
         ALL,
@@ -33,5 +36,9 @@ pub fn apply_skills_footer(confirm_label: &'static str) -> Vec<FooterHint> {
         BACK,
         ("Enter", confirm_label),
         CANCEL,
-    ]
+    ];
+    if show_tracking_toggle {
+        hints.insert(2, ("g", "git-track"));
+    }
+    hints
 }

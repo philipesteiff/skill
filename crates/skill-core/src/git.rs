@@ -348,3 +348,67 @@ pub fn default_branch(repo_dir: &Path) -> Result<String> {
     }
     Err(anyhow!("unable to determine default branch"))
 }
+
+pub fn git_path(repo_dir: &Path, path: &str) -> Result<PathBuf> {
+    let output = run_git(
+        [
+            "-C",
+            repo_dir.to_str().unwrap_or("."),
+            "rev-parse",
+            "--git-path",
+            path,
+        ],
+        None,
+    )?;
+    let resolved = PathBuf::from(output);
+    if resolved.is_absolute() {
+        return Ok(resolved);
+    }
+    Ok(repo_dir.join(resolved))
+}
+
+pub fn is_path_ignored(repo_dir: &Path, path: &Path) -> Result<bool> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            repo_dir.to_str().unwrap_or("."),
+            "check-ignore",
+            "-q",
+            "--",
+            path.to_str().unwrap_or(""),
+        ])
+        .output()
+        .context("failed to run git check-ignore")?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(anyhow!(
+            "git check-ignore failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )),
+    }
+}
+
+pub fn is_path_tracked(repo_dir: &Path, path: &Path) -> Result<bool> {
+    let output = Command::new("git")
+        .args([
+            "-C",
+            repo_dir.to_str().unwrap_or("."),
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            path.to_str().unwrap_or(""),
+        ])
+        .output()
+        .context("failed to run git ls-files")?;
+    if output.status.success() {
+        return Ok(true);
+    }
+    if matches!(output.status.code(), Some(1)) {
+        return Ok(false);
+    }
+    Err(anyhow!(
+        "git ls-files failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    ))
+}

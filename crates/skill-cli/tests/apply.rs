@@ -3,10 +3,26 @@ mod support;
 use anyhow::Result;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 use support::{run_skill, run_skill_in_dir};
 
 use skill_core::lockfile::{LockedSkill, Lockfile};
+
+fn run_git<I, S>(args: I, cwd: &Path) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let output = Command::new("git").args(args).current_dir(cwd).output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!(
+        "git failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    ))
+}
 
 fn seed_install(paths: &Path, source_id: &str, name: &str, source: &Path) -> Result<()> {
     let install_dir = paths
@@ -226,6 +242,70 @@ fn when_unapplying_should_remove_skill_from_target() -> Result<()> {
     assert!(output.status.success());
 
     assert!(!applied_dir.exists());
+
+    Ok(())
+}
+
+#[test]
+fn when_unapplying_should_remove_managed_tracking_entry() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let project_dir = temp.path().join("project-unapply-managed");
+    fs::create_dir_all(project_dir.join(".claude/skills"))?;
+    run_git(["init", "-q"], &project_dir)?;
+    run_git(["config", "user.email", "test@example.com"], &project_dir)?;
+    run_git(["config", "user.name", "Test"], &project_dir)?;
+
+    let output = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(output.status.success());
+
+    let exclude_path = project_dir.join(".git/info/exclude");
+    fs::write(
+        &exclude_path,
+        [
+            "# File patterns to ignore; see `git help ignore` for more information.",
+            "",
+            "# >>> skill managed git tracking >>>",
+            ".claude/skills/acme__echo-skill",
+            "# <<< skill managed git tracking <<<",
+            "",
+        ]
+        .join("\n"),
+    )?;
+
+    let output = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--unapply",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(output.status.success());
+
+    let exclude = fs::read_to_string(&exclude_path)?;
+    assert!(!exclude.contains(".claude/skills/acme__echo-skill"));
 
     Ok(())
 }
