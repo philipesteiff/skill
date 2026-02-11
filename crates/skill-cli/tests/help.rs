@@ -1,13 +1,19 @@
-mod support;
+use anyhow::{Context, Result};
+use std::path::Path;
+use std::process::Command;
 
-use anyhow::Result;
-
-use support::run_skill;
+fn run_skill(args: &[&str], skills_home: &Path) -> Result<std::process::Output> {
+    Command::new(env!("CARGO_BIN_EXE_skill"))
+        .args(args)
+        .env("SKILLS_HOME", skills_home)
+        .output()
+        .context("run skill")
+}
 
 #[test]
 fn when_showing_apply_help_should_describe_tui_vs_cli_modes() -> Result<()> {
     let temp = tempfile::tempdir()?;
-    let output = run_skill(&["apply", "--help"], temp.path(), None)?;
+    let output = run_skill(&["apply", "--help"], temp.path())?;
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -21,7 +27,7 @@ fn when_showing_apply_help_should_describe_tui_vs_cli_modes() -> Result<()> {
 #[test]
 fn when_showing_sync_help_should_describe_no_arg_sync_all() -> Result<()> {
     let temp = tempfile::tempdir()?;
-    let output = run_skill(&["sync", "--help"], temp.path(), None)?;
+    let output = run_skill(&["sync", "--help"], temp.path())?;
     assert!(output.status.success());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
