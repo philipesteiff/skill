@@ -132,6 +132,44 @@ fn when_applying_non_interactive_should_link_skill() -> Result<()> {
 }
 
 #[test]
+fn when_applying_project_target_with_home_unset_should_succeed() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let project_dir = temp.path().join("project-no-home");
+    fs::create_dir_all(&project_dir)?;
+
+    let output = Command::new(env!("CARGO_BIN_EXE_skill"))
+        .args([
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ])
+        .env("SKILLS_HOME", &skills_home)
+        .env_remove("HOME")
+        .current_dir(&project_dir)
+        .output()?;
+    assert!(
+        output.status.success(),
+        "apply failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let applied_dir = project_dir.join(".claude/skills").join("acme__echo-skill");
+    assert!(applied_dir.join("SKILL.md").exists());
+    assert_applied_dir(&applied_dir)?;
+
+    Ok(())
+}
+
+#[test]
 fn when_applying_all_targets_should_link_to_all_agents() -> Result<()> {
     let temp = tempfile::tempdir()?;
     let skills_home = temp.path().join("skills-home");

@@ -252,16 +252,20 @@ const AGENTS: &[AgentDef] = &[
 ];
 
 pub fn detect_agents(repo_root: &Path) -> Result<Vec<DetectedAgent>> {
-    let home = env::var("HOME").map_err(|_| anyhow!("HOME is not set"))?;
+    let home = env::var("HOME").ok().map(PathBuf::from);
     let env_info = EnvInfo::from_env();
     Ok(detect_agents_with_env(
         repo_root,
-        &PathBuf::from(home),
+        home.as_deref(),
         &env_info,
     ))
 }
 
-fn detect_agents_with_env(repo_root: &Path, home: &Path, env_info: &EnvInfo) -> Vec<DetectedAgent> {
+fn detect_agents_with_env(
+    repo_root: &Path,
+    home: Option<&Path>,
+    env_info: &EnvInfo,
+) -> Vec<DetectedAgent> {
     AGENTS
         .iter()
         .map(|def| {
@@ -274,7 +278,11 @@ fn detect_agents_with_env(repo_root: &Path, home: &Path, env_info: &EnvInfo) -> 
                     .term_substrings
                     .iter()
                     .any(|needle| env_info.term_contains(needle));
-            let global_dir = def.supports_global.then(|| home.join(def.global_rel));
+            let global_dir = if def.supports_global {
+                home.map(|path| path.join(def.global_rel))
+            } else {
+                None
+            };
             let project_dir = def
                 .supports_project
                 .then(|| repo_root.join(def.project_rel));
@@ -352,7 +360,7 @@ mod tests {
             keys: HashSet::new(),
             term_program: None,
         };
-        let agents = detect_agents_with_env(temp.path(), temp.path(), &env_info);
+        let agents = detect_agents_with_env(temp.path(), Some(temp.path()), &env_info);
         let vscode = agents
             .iter()
             .find(|agent| agent.id == AgentId::Vscode)
@@ -368,12 +376,33 @@ mod tests {
             keys: HashSet::new(),
             term_program: None,
         };
-        let agents = detect_agents_with_env(temp.path(), temp.path(), &env_info);
+        let agents = detect_agents_with_env(temp.path(), Some(temp.path()), &env_info);
         let targets = targets_for_agents(&agents);
         let goose_project = targets.iter().find(|target| {
             target.key.agent == AgentId::Goose && target.key.scope == Scope::Project
         });
         assert!(goose_project.is_some());
         assert!(goose_project.unwrap().default_selected);
+    }
+
+    #[test]
+    fn when_home_missing_should_still_build_project_targets() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let env_info = EnvInfo {
+            keys: HashSet::new(),
+            term_program: None,
+        };
+        let agents = detect_agents_with_env(temp.path(), None, &env_info);
+        let targets = targets_for_agents(&agents);
+
+        let codex_project = targets.iter().find(|target| {
+            target.key.agent == AgentId::Codex && target.key.scope == Scope::Project
+        });
+        assert!(codex_project.is_some());
+
+        let has_global = targets
+            .iter()
+            .any(|target| target.key.scope == Scope::Global);
+        assert!(!has_global);
     }
 }

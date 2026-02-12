@@ -109,9 +109,7 @@ fn install_target(paths: &Paths, reporter: &mut Reporter, target: &InstallTarget
         version: resolved_version.clone(),
     })?;
 
-    let version_label = resolved_version
-        .clone()
-        .unwrap_or_else(|| short_sha(&target.commit));
+    let version_label = install_version_label(resolved_version.as_deref(), &target.commit)?;
 
     reporter.step("Copying files to skills home")?;
     let skill_root = paths
@@ -145,6 +143,29 @@ fn install_target(paths: &Paths, reporter: &mut Reporter, target: &InstallTarget
     Ok(())
 }
 
+fn install_version_label(resolved_version: Option<&str>, commit: &str) -> Result<String> {
+    match resolved_version {
+        Some(version) => {
+            if is_safe_version_label(version) {
+                return Ok(version.to_string());
+            }
+            Err(anyhow!(
+                "unsafe skill version label '{version}'; use only letters, numbers, '.', '-', '_' or '+'"
+            ))
+        }
+        None => Ok(short_sha(commit)),
+    }
+}
+
+fn is_safe_version_label(value: &str) -> bool {
+    !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | '+'))
+}
+
 fn run_with_feedback<F, T>(reporter: &mut Reporter, task: F) -> Result<T>
 where
     F: Send + 'static + FnOnce() -> Result<T>,
@@ -167,5 +188,29 @@ where
                 return Err(anyhow!("operation canceled"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn when_version_label_missing_should_use_short_commit() -> Result<()> {
+        let label = install_version_label(None, "deadbeefcafebabe")?;
+        assert_eq!(label, short_sha("deadbeefcafebabe"));
+        Ok(())
+    }
+
+    #[test]
+    fn when_version_label_contains_path_separator_should_error() {
+        let result = install_version_label(Some("1.2.3/rc1"), "deadbeef");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn when_version_label_contains_parent_segment_should_error() {
+        let result = install_version_label(Some(".."), "deadbeef");
+        assert!(result.is_err());
     }
 }

@@ -49,6 +49,21 @@ fn write_skill(repo_dir: &Path, name: &str, description: &str) -> Result<PathBuf
     Ok(skill_dir)
 }
 
+fn write_skill_with_version(
+    repo_dir: &Path,
+    name: &str,
+    description: &str,
+    version: &str,
+) -> Result<PathBuf> {
+    let skill_dir = repo_dir.join("skills").join(name);
+    fs::create_dir_all(&skill_dir)?;
+    let contents = format!(
+        "---\nname: {name}\ndescription: {description}\nmetadata:\n  version: \"{version}\"\n---\n"
+    );
+    fs::write(skill_dir.join("SKILL.md"), contents)?;
+    Ok(skill_dir)
+}
+
 fn write_root_skill(repo_dir: &Path, name: &str, description: &str) -> Result<()> {
     let contents = format!("---\nname: {name}\ndescription: {description}\n---\n");
     fs::write(repo_dir.join("SKILL.md"), contents)?;
@@ -481,6 +496,44 @@ fn when_syncing_explicit_source_with_empty_selection_should_error() -> Result<()
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("no skills selected"));
+
+    Ok(())
+}
+
+#[test]
+fn when_syncing_source_with_unsafe_version_should_fail_and_not_escape_install_root() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_dir = temp.path().join("skills-repo");
+    fs::create_dir_all(&repo_dir)?;
+    let outside = temp.path().join("outside-install");
+    write_skill_with_version(
+        &repo_dir,
+        "evil-skill",
+        "Evil",
+        outside.to_string_lossy().as_ref(),
+    )?;
+    init_repo(&repo_dir, "Initial unsafe version")?;
+
+    let repo_url = format!("file://{}", repo_dir.display());
+    write_config(&skills_home, "acme-skills", &repo_url, SelectionConfig::All)?;
+
+    let output = run_skill_with_env(&["sync", "@acme-skills"], &skills_home, None, &[])?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unsafe skill version label"));
+    assert!(
+        !outside.join("SKILL.md").exists(),
+        "expected no writes outside skills home"
+    );
+
+    let lock_path = skills_home.join("lock.json");
+    if lock_path.exists() {
+        let lock = read_lock(&skills_home)?;
+        assert!(lock.skills.is_empty());
+    }
 
     Ok(())
 }

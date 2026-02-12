@@ -17,11 +17,129 @@ Audited workspace: `/Users/philipesteiff/Projects/skill`
 ## Findings Overview
 | ID | Severity | Type | Title |
 |---|---|---|---|
+| H-10 | high | security/business-logic | Untrusted `metadata.version` can escape `SKILLS_HOME` install directory `[FIXED 2026-02-12]` |
+| M-10 | medium | edge-case/logical-consistency | `apply` fails when `HOME` is unset even for project-only targets `[FIXED 2026-02-12]` |
 | M-07 | medium | logical-consistency | `sync` (no-arg) fails globally when any configured source has empty selection `[FIXED 2026-02-12]` |
 | M-08 | medium | logical-consistency | `apply` exits `0` when Git tracking updates fail `[FIXED 2026-02-12]` |
 | M-09 | medium | business-logic | `apply` skip logic does not detect drift in managed target directories `[FIXED 2026-02-12]` |
 
 ## Detailed Findings
+
+### H-10: Untrusted `metadata.version` can escape `SKILLS_HOME` install directory
+Severity: `high`  
+Type: `security/business-logic`
+Status: `FIXED` (2026-02-12)
+
+What is happening:
+- Installer uses `resolved_version` directly as a filesystem path component for install output.
+- `resolved_version` can come from source metadata (`SKILL.md` `metadata.version`) without path-safety validation.
+- Absolute paths or traversal-like version values can redirect installed files outside `SKILLS_HOME`.
+
+Why this is problematic:
+- A source-controlled metadata field can control install destination path.
+- This violates install directory isolation and can write files outside the managed skill home.
+- Follow-on operations (sync/apply/uninstall) then operate on escaped paths recorded in `lock.json`.
+
+Impact:
+- Potential arbitrary write/delete behavior within user permissions during normal `browse`/`sync`.
+- High risk for destructive side effects and unexpected filesystem mutation.
+
+Evidence:
+- Code paths:
+  - `/Users/philipesteiff/Projects/skill/crates/skill-core/src/skills.rs:168`
+  - `/Users/philipesteiff/Projects/skill/crates/skill-core/src/installer.rs:106`
+  - `/Users/philipesteiff/Projects/skill/crates/skill-core/src/installer.rs:122`
+  - `/Users/philipesteiff/Projects/skill/crates/skill-core/src/installer.rs:134`
+- Runtime probe (2026-02-12):
+  - Created local source with `metadata.version` set to an absolute temp path.
+  - Ran `skill sync @evil-source`.
+  - Command succeeded with status `0`.
+  - Output showed install path outside `SKILLS_HOME`.
+  - `lock.json` recorded external `install_dir`, and external `SKILL.md` was created.
+
+Suggested fix:
+- Decouple `resolved_version` display/storage from filesystem directory naming.
+- Enforce safe install directory labels:
+  - reject absolute paths,
+  - reject `..` and path separators,
+  - optionally normalize via safe slug/hash.
+- Keep original version in lock metadata, but never use raw version string as a path join component.
+
+Suggested tests:
+- Add regression tests in `/Users/philipesteiff/Projects/skill/crates/skill-core/src/installer.rs` or `/Users/philipesteiff/Projects/skill/crates/skill-cli/tests/sync.rs`:
+  - absolute `metadata.version` is rejected or sanitized,
+  - traversal-like version values cannot escape `installed/<source>/<skill>/...`.
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-core/src/installer.rs`
+  - Added strict install path label validation for `resolved_version`.
+  - Installer now rejects unsafe version labels containing path/control semantics and returns an error.
+  - Installation directory label defaults to commit short SHA when version is absent.
+- `/Users/philipesteiff/Projects/skill/crates/skill-cli/tests/sync.rs`
+  - Added `when_syncing_source_with_unsafe_version_should_fail_and_not_escape_install_root`.
+- `/Users/philipesteiff/Projects/skill/crates/skill-core/src/installer.rs`
+  - Added unit tests for version label validation behavior.
+
+Verification:
+- `cargo test -p skill-core installer`
+- `cargo test -p skill-cli sync`
+- `cargo test -p skill-core -p skill-features -p skill-cli`
+
+---
+
+### M-10: `apply` fails when `HOME` is unset even for project-only targets
+Severity: `medium`  
+Type: `edge-case/logical-consistency`
+Status: `FIXED` (2026-02-12)
+
+What is happening:
+- `apply` always calls agent detection, which hard-fails if `HOME` is unset.
+- This happens before target parsing and even when user explicitly requests project-only targets.
+
+Why this is problematic:
+- Project-only apply flows do not require global target paths.
+- In minimal CI/systemd/container environments where `HOME` may be absent, valid project-only commands fail unnecessarily.
+
+Impact:
+- Hard failure in otherwise valid non-interactive apply flows.
+- Extra environment coupling for automation.
+
+Evidence:
+- Code paths:
+  - `/Users/philipesteiff/Projects/skill/crates/skill-features/src/apply/mod.rs:111`
+  - `/Users/philipesteiff/Projects/skill/crates/skill-features/src/apply/agents.rs:255`
+- Runtime probe (2026-02-12):
+  - Ran:
+    - `env -u HOME SKILLS_HOME=<tmp> skill apply --no-tui --targets claude:project --skills acme/echo-skill`
+  - Result:
+    - exit status `1`
+    - stderr: `Error: HOME is not set`
+
+Suggested fix:
+- Make agent detection resilient to missing `HOME`:
+  - always detect/build project targets,
+  - include global targets only when `HOME` is present.
+- Preserve current behavior for global targets when `HOME` exists.
+
+Suggested tests:
+- Add integration test in `/Users/philipesteiff/Projects/skill/crates/skill-cli/tests/apply.rs`:
+  - unset `HOME`,
+  - run project-only apply,
+  - assert success path still works.
+
+Fix implemented:
+- `/Users/philipesteiff/Projects/skill/crates/skill-features/src/apply/agents.rs`
+  - Agent detection now tolerates missing `HOME` and still builds project targets.
+  - Global targets are emitted only when `HOME` is available.
+- `/Users/philipesteiff/Projects/skill/crates/skill-cli/tests/apply.rs`
+  - Added `when_applying_project_target_with_home_unset_should_succeed`.
+- `/Users/philipesteiff/Projects/skill/crates/skill-features/src/apply/agents.rs`
+  - Added unit test for missing-`HOME` target behavior.
+
+Verification:
+- `cargo test -p skill-features apply::agents`
+- `cargo test -p skill-cli apply`
+- `cargo test -p skill-core -p skill-features -p skill-cli`
 
 ### M-07: `sync` (no-arg) fails globally when any configured source has empty selection
 Severity: `medium`  
