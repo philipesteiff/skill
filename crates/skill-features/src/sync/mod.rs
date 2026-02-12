@@ -29,7 +29,7 @@ pub fn run(paths: &Paths, args: SyncArgs) -> Result<()> {
             if created {
                 config::save(paths, &config)?;
             }
-            sync_one_source(paths, &source_cfg, &format!("skill sync {input}"))
+            sync_one_source(paths, &source_cfg, &format!("skill sync {input}"), false)
         }
         None => sync_all_sources(paths, &config.sources),
     }
@@ -46,7 +46,7 @@ fn sync_all_sources(paths: &Paths, sources: &[config::SourceConfig]) -> Result<(
     let mut failed = Vec::new();
     for source_cfg in sources {
         let context = format!("skill sync @{}", source_cfg.id);
-        match sync_one_source(paths, source_cfg, &context) {
+        match sync_one_source(paths, source_cfg, &context, true) {
             Ok(()) => {
                 succeeded += 1;
             }
@@ -87,9 +87,16 @@ fn sync_one_source(
     paths: &Paths,
     source_cfg: &config::SourceConfig,
     sync_context: &str,
+    allow_empty_selection: bool,
 ) -> Result<()> {
     let mut log_ui = LogUi::new(sync_context.to_string())?;
-    let result = sync_one_source_inner(paths, source_cfg, sync_context, &mut log_ui);
+    let result = sync_one_source_inner(
+        paths,
+        source_cfg,
+        sync_context,
+        allow_empty_selection,
+        &mut log_ui,
+    );
     let finish = log_ui.finish();
     finish?;
     result
@@ -99,6 +106,7 @@ fn sync_one_source_inner(
     paths: &Paths,
     source_cfg: &config::SourceConfig,
     sync_context: &str,
+    allow_empty_selection: bool,
     output: &mut impl Output,
 ) -> Result<()> {
     source::ensure_index(paths, source_cfg, output)?;
@@ -106,6 +114,10 @@ fn sync_one_source_inner(
     let skills = source_index::list_all(paths, &source_cfg.id)?;
     let (desired, missing) = select_skills(&skills, &source_cfg.selection);
     if desired.is_empty() {
+        if allow_empty_selection {
+            output.line("Skipped source: no selected skills")?;
+            return Ok(());
+        }
         return Err(anyhow!(
             "no skills selected; run skill browse to choose skills"
         ));

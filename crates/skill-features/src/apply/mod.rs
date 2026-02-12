@@ -6,6 +6,7 @@ use std::fs;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::str::FromStr;
+use walkdir::WalkDir;
 
 mod agents;
 mod git_tracking;
@@ -181,6 +182,7 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
     )?;
     applied_index.save(paths)?;
     let failed_count = results.failed.len();
+    let tracking_failed_count = results.tracking_failed.len();
 
     output.line("")?;
     if args.unapply {
@@ -277,9 +279,17 @@ fn apply_installed(paths: &Paths, output: &mut impl Output, args: &ApplyArgs) ->
         output.line("")?;
     }
 
-    if failed_count > 0 {
+    if failed_count > 0 || tracking_failed_count > 0 {
+        let mut failure_parts = Vec::new();
+        if failed_count > 0 {
+            failure_parts.push(format!("{failed_count} failed action(s)"));
+        }
+        if tracking_failed_count > 0 {
+            failure_parts.push(format!("{tracking_failed_count} tracking failure(s)"));
+        }
         return Err(anyhow!(
-            "apply completed with {failed_count} failed action(s)"
+            "apply completed with {}",
+            failure_parts.join(" and ")
         ));
     }
 
@@ -455,10 +465,70 @@ fn build_applied_entry(skill: &ApplySkill, dest: &std::path::Path) -> AppliedEnt
     }
 }
 
-fn entry_needs_refresh(entry: &AppliedEntry, skill: &ApplySkill) -> bool {
-    entry.install_dir != skill.source_dir
+fn entry_needs_refresh(
+    entry: &AppliedEntry,
+    skill: &ApplySkill,
+    dest: &std::path::Path,
+) -> Result<bool> {
+    if entry.install_dir != skill.source_dir
         || entry.resolved_commit != skill.resolved_commit
         || entry.content_hash != skill.content_hash
+    {
+        return Ok(true);
+    }
+    Ok(!directories_match(&skill.source_dir, dest)?)
+}
+
+fn directories_match(source: &std::path::Path, dest: &std::path::Path) -> Result<bool> {
+    for entry in WalkDir::new(source).follow_links(false) {
+        let entry = entry?;
+        let rel = entry.path().strip_prefix(source)?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let dest_path = dest.join(rel);
+        if entry.file_type().is_dir() {
+            if !dest_path.is_dir() {
+                return Ok(false);
+            }
+            continue;
+        }
+        if !entry.file_type().is_file() || !dest_path.is_file() {
+            return Ok(false);
+        }
+        if !files_match(entry.path(), &dest_path)? {
+            return Ok(false);
+        }
+    }
+
+    for entry in WalkDir::new(dest).follow_links(false) {
+        let entry = entry?;
+        let rel = entry.path().strip_prefix(dest)?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let source_path = source.join(rel);
+        if entry.file_type().is_dir() {
+            if !source_path.is_dir() {
+                return Ok(false);
+            }
+            continue;
+        }
+        if !entry.file_type().is_file() || !source_path.is_file() {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+fn files_match(source: &std::path::Path, dest: &std::path::Path) -> Result<bool> {
+    let source_meta = fs::metadata(source)?;
+    let dest_meta = fs::metadata(dest)?;
+    if source_meta.len() != dest_meta.len() {
+        return Ok(false);
+    }
+    Ok(fs::read(source)? == fs::read(dest)?)
 }
 
 #[derive(Clone)]
@@ -619,8 +689,20 @@ fn apply_selection(
                         }
                         let needs_refresh = managed_entry
                             .as_ref()
-                            .map(|entry| entry_needs_refresh(entry, skill))
-                            .unwrap_or(true);
+                            .map(|entry| entry_needs_refresh(entry, skill, &dest))
+                            .unwrap_or(Ok(true));
+                        let needs_refresh = match needs_refresh {
+                            Ok(value) => value,
+                            Err(err) => {
+                                results.failed.push(FailedAction {
+                                    action,
+                                    reason: format!(
+                                        "failed to compare managed destination with source: {err}"
+                                    ),
+                                });
+                                continue;
+                            }
+                        };
                         if needs_refresh {
                             if !skill.source_exists {
                                 results.failed.push(FailedAction {

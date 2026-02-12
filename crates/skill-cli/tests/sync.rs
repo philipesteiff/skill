@@ -407,3 +407,80 @@ fn when_syncing_without_source_and_no_configured_sources_should_error() -> Resul
 
     Ok(())
 }
+
+#[test]
+fn when_syncing_without_source_and_one_source_has_empty_selection_should_skip_not_fail()
+-> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_empty = temp.path().join("skills-repo-empty");
+    fs::create_dir_all(&repo_empty)?;
+    write_skill(&repo_empty, "alpha-skill", "Alpha")?;
+    init_repo(&repo_empty, "Initial alpha")?;
+
+    let repo_active = temp.path().join("skills-repo-active");
+    fs::create_dir_all(&repo_active)?;
+    write_skill(&repo_active, "beta-skill", "Beta")?;
+    init_repo(&repo_active, "Initial beta")?;
+
+    write_sources_config(
+        &skills_home,
+        vec![
+            SourceConfig {
+                id: "empty".to_string(),
+                url: format!("file://{}", repo_empty.display()),
+                selection: SelectionConfig::List { skills: Vec::new() },
+            },
+            SourceConfig {
+                id: "active".to_string(),
+                url: format!("file://{}", repo_active.display()),
+                selection: SelectionConfig::All,
+            },
+        ],
+    )?;
+
+    let output = run_skill_with_env(&["sync"], &skills_home, None, &[])?;
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Skipped source: no selected skills"));
+
+    let lock = read_lock(&skills_home)?;
+    assert_eq!(lock.skills.len(), 1);
+    let active_skill = lock
+        .skills
+        .iter()
+        .find(|entry| entry.source_id == "active" && entry.name == "beta-skill");
+    assert!(active_skill.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn when_syncing_explicit_source_with_empty_selection_should_error() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+
+    let repo_empty = temp.path().join("skills-repo-empty");
+    fs::create_dir_all(&repo_empty)?;
+    write_skill(&repo_empty, "alpha-skill", "Alpha")?;
+    init_repo(&repo_empty, "Initial alpha")?;
+
+    write_sources_config(
+        &skills_home,
+        vec![SourceConfig {
+            id: "empty".to_string(),
+            url: format!("file://{}", repo_empty.display()),
+            selection: SelectionConfig::List { skills: Vec::new() },
+        }],
+    )?;
+
+    let output = run_skill_with_env(&["sync", "@empty"], &skills_home, None, &[])?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no skills selected"));
+
+    Ok(())
+}

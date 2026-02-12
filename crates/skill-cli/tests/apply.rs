@@ -598,6 +598,113 @@ fn when_reapplying_should_report_skipped_action() -> Result<()> {
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+fn when_git_tracking_update_fails_should_return_non_zero() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(&skill_md, "---\nname: echo-skill\ndescription: test\n---\n")?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let project_dir = temp.path().join("project-tracking-failure");
+    fs::create_dir_all(&project_dir)?;
+    run_git(["init", "-q"], &project_dir)?;
+    run_git(["config", "user.email", "test@example.com"], &project_dir)?;
+    run_git(["config", "user.name", "Test"], &project_dir)?;
+
+    let exclude_path = project_dir.join(".git/info/exclude");
+    fs::write(&exclude_path, "# initial\n")?;
+    let mut readonly = fs::metadata(&exclude_path)?.permissions();
+    readonly.set_mode(0o444);
+    fs::set_permissions(&exclude_path, readonly)?;
+
+    let output = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Git Tracking Failed"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("tracking failure(s)"));
+
+    Ok(())
+}
+
+#[test]
+fn when_reapplying_after_managed_drift_should_refresh_content() -> Result<()> {
+    let temp = tempfile::tempdir()?;
+    let skills_home = temp.path().join("skills-home");
+    fs::create_dir_all(&skills_home)?;
+    let skill_md = temp.path().join("SKILL.md");
+    fs::write(
+        &skill_md,
+        "---\nname: echo-skill\ndescription: original content\n---\n",
+    )?;
+    seed_install(&skills_home, "acme", "echo-skill", &skill_md)?;
+
+    let project_dir = temp.path().join("project-drift");
+    fs::create_dir_all(&project_dir)?;
+
+    let first = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(first.status.success());
+
+    let applied_skill = project_dir
+        .join(".claude/skills")
+        .join("acme__echo-skill")
+        .join("SKILL.md");
+    fs::write(
+        &applied_skill,
+        "---\nname: echo-skill\ndescription: tampered\n---\n",
+    )?;
+
+    let second = run_skill(
+        &[
+            "apply",
+            "--no-tui",
+            "--targets",
+            "claude:project",
+            "--skills",
+            "acme/echo-skill",
+        ],
+        &skills_home,
+        Some(&project_dir),
+    )?;
+    assert!(second.status.success());
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(stdout.contains("Added:"));
+    assert!(!stdout.contains("[=] acme/echo-skill on Claude Code project"));
+
+    let restored = fs::read_to_string(&applied_skill)?;
+    assert!(restored.contains("original content"));
+    assert!(!restored.contains("tampered"));
+
+    Ok(())
+}
+
 #[test]
 fn when_applying_over_unmanaged_directory_should_report_failure() -> Result<()> {
     let temp = tempfile::tempdir()?;
