@@ -37,6 +37,12 @@ From source (any OS with Rust):
 cargo install --git https://github.com/philipesteiff/skill --locked --bin skill
 ```
 
+Verify installation:
+```bash
+skill --version
+# prints the installed version when the binary is on your PATH
+```
+
 ## Usage
 Skill scans `SKILL.md` files recursively, including repository root (for single-skill repos).
 
