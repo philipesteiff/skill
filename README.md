@@ -37,6 +37,11 @@ From source (any OS with Rust):
 cargo install --git https://github.com/philipesteiff/skill --locked --bin skill
 ```
 
+Verify the CLI is available by checking the version:
+```bash
+skill --version
+```
+
 ## Usage
 Skill scans `SKILL.md` files recursively, including repository root (for single-skill repos).
 
