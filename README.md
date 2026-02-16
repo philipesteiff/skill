@@ -25,16 +25,19 @@ macOS (Homebrew):
 ```bash
 brew tap philipesteiff/tap
 brew install skill
+skill --version
 ```
 
 macOS (curl installer):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/philipesteiff/skill/main/scripts/install.sh | bash
+skill --version
 ```
 
 From source (any OS with Rust):
 ```bash
 cargo install --git https://github.com/philipesteiff/skill --locked --bin skill
+skill --version
 ```
 
 ## Usage
