@@ -26,15 +26,27 @@ macOS (Homebrew):
 brew tap philipesteiff/tap
 brew install skill
 ```
+To uninstall:
+```bash
+brew uninstall skill
+```
 
 macOS (curl installer):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/philipesteiff/skill/main/scripts/install.sh | bash
 ```
+To uninstall, remove the binary that the installer placed on your PATH (defaults to `/usr/local/bin/skill` or `/opt/homebrew/bin/skill`):
+```bash
+rm "$(command -v skill)"
+```
 
 From source (any OS with Rust):
 ```bash
 cargo install --git https://github.com/philipesteiff/skill --locked --bin skill
+```
+To uninstall:
+```bash
+cargo uninstall skill
 ```
 
 ## Usage
